@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: buildkitd
+  namespace: deployhub
+  labels:
+    app: buildkitd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: buildkitd
+  template:
+    metadata:
+      labels:
+        app: buildkitd
+    spec:
+      containers:
+        - name: buildkitd
+          image: moby/buildkit:v0.19.0
+          args:
+            - --addr
+            - tcp://0.0.0.0:1234
+            - --addr
+            - unix:///run/buildkit/buildkitd.sock
+          ports:
+            - containerPort: 1234
+          securityContext:
+            privileged: true   # Required for rootful BuildKit; use rootless variant for tighter security
+          readinessProbe:
+            exec:
+              command: ["buildctl", "debug", "workers"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: buildkitd
+  namespace: deployhub
+spec:
+  selector:
+    app: buildkitd
+  ports:
+    - port: 1234
+      targetPort: 1234

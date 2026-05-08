@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backend-data-pvc
+  namespace: deployhub
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend-sa
+  namespace: deployhub
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-manager
+  namespace: deployhub
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "pods/log", "pods/status"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backend-pod-manager
+  namespace: deployhub
+subjects:
+  - kind: ServiceAccount
+    name: backend-sa
+    namespace: deployhub
+roleRef:
+  kind: Role
+  name: pod-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: deployhub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      serviceAccountName: backend-sa
+      imagePullSecrets:
+        - name: ecr-private-key
+      containers:
+        - name: backend
+          image: 654654525548.dkr.ecr.us-east-1.amazonaws.com/deployhub-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DEPLOYMENT_MODE
+              value: "k8s"
+            - name: MONGO_URI
+              value: "mongodb://mongo:27017/deployhub"
+            - name: MONGO_DB_NAME
+              value: "deployhub"
+            - name: BUILDKIT_HOST
+              value: "tcp://buildkitd:1234"
+            - name: REGISTRY_ADDR
+              value: "654654525548.dkr.ecr.us-east-1.amazonaws.com/deployhub-apps"
+            - name: REGISTRY_INSECURE
+              value: "false"
+            - name: PUBLIC_BASE_URL
+              value: "http://3.95.33.38:3081"
+            - name: AWS_REGION
+              value: "us-east-1"
+          volumeMounts:
+            - name: backend-data
+              mountPath: /data
+      volumes:
+        - name: backend-data
+          persistentVolumeClaim:
+            claimName: backend-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: deployhub
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 3081
+  type: NodePort

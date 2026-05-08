@@ -1,0 +1,53 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: deployhub-backend
+    environment:
+      MONGO_URI: ${MONGO_URI:-mongodb://mongo:27017/deployhub}
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-deployhub}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost}
+      BACKEND_VERSION: ${BACKEND_VERSION:-2.0.0}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      PORT_RANGE_START: ${PORT_RANGE_START:-3001}
+      PORT_RANGE_END: ${PORT_RANGE_END:-3999}
+      REPO_ROOT: /data/repos
+      GENERATED_DOCKERFILE_ROOT: /data/generated-dockerfiles
+    ports:
+      - "8000:8000"
+    volumes:
+      - deployhub_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: deployhub-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:6
+    container_name: deployhub-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  deployhub_data:
+  mongo_data:

@@ -1,4 +1,5 @@
 import asyncio
+import time
 from functools import partial
 
 from kubernetes import client, config
@@ -245,3 +246,79 @@ def _delete_ingress_sync(name: str) -> dict:
         return {"status": "success"}
     except ApiException:
         return {"status": "success"}
+
+
+def _wait_for_pod_running_sync(name: str, timeout_seconds: int = 120) -> dict:
+    """Poll until pod phase is Running or timeout is reached."""
+    v1 = _get_k8s_client()
+    namespace = settings.k8s_namespace
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            pod = v1.read_namespaced_pod(name=name, namespace=namespace)
+            phase = pod.status.phase
+            if phase == "Running":
+                # Also check all containers are ready
+                container_statuses = pod.status.container_statuses or []
+                all_ready = all(cs.ready for cs in container_statuses)
+                if all_ready:
+                    return {"status": "running"}
+                # Pod is Running but containers not yet ready — keep waiting
+            elif phase in ("Failed", "Unknown"):
+                # Grab last termination reason if available
+                reason = phase
+                container_statuses = pod.status.container_statuses or []
+                for cs in container_statuses:
+                    if cs.state and cs.state.terminated:
+                        reason = cs.state.terminated.reason or reason
+                    elif cs.state and cs.state.waiting:
+                        reason = cs.state.waiting.reason or reason
+                return {"status": "error", "reason": reason}
+        except ApiException as e:
+            if e.status == 404:
+                return {"status": "error", "reason": "Pod not found"}
+        time.sleep(3)
+    return {"status": "error", "reason": f"Pod did not become ready within {timeout_seconds}s"}
+
+
+def _get_pod_restart_count_sync(name: str) -> int:
+    """Return total restart count across all containers in a pod."""
+    try:
+        v1 = _get_k8s_client()
+        pod = v1.read_namespaced_pod(name=name, namespace=settings.k8s_namespace)
+        container_statuses = pod.status.container_statuses or []
+        return sum(cs.restart_count for cs in container_statuses)
+    except Exception:
+        return 0
+
+
+def _get_all_pod_restart_counts_sync() -> dict[str, int]:
+    """Return {pod_name: restart_count} for all deployhub-managed pods."""
+    try:
+        v1 = _get_k8s_client()
+        pods = v1.list_namespaced_pod(namespace=settings.k8s_namespace)
+        result = {}
+        for pod in pods.items:
+            if pod.metadata.name.startswith("deployhub-"):
+                container_statuses = pod.status.container_statuses or []
+                result[pod.metadata.name] = sum(cs.restart_count for cs in container_statuses)
+        return result
+    except Exception:
+        return {}
+
+
+# ── New async wrappers ────────────────────────────────────────────────────────
+
+async def wait_for_pod_running(name: str, timeout_seconds: int = 120) -> dict:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, partial(_wait_for_pod_running_sync, name, timeout_seconds))
+
+
+async def get_pod_restart_count(name: str) -> int:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, partial(_get_pod_restart_count_sync, name))
+
+
+async def get_all_pod_restart_counts() -> dict[str, int]:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _get_all_pod_restart_counts_sync)

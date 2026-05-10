@@ -15,6 +15,10 @@ kind: ServiceAccount
 metadata:
   name: backend-sa
   namespace: deployhub
+  annotations:
+    # EKS: IRSA — pod assumes this IAM role for ECR push without static credentials
+    # k3s: annotation is ignored, ECR access uses node IAM role or ecr-private-key secret
+    eks.amazonaws.com/role-arn: "${BACKEND_SA_ROLE_ARN}"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -24,6 +28,9 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["pods", "services", "pods/log", "pods/status"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
     verbs: ["get", "list", "watch", "create", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -66,21 +73,68 @@ spec:
             - containerPort: 8000
           env:
             - name: DEPLOYMENT_MODE
-              value: "k8s"
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: deployment-mode
             - name: MONGO_URI
-              value: "mongodb://mongo:27017/deployhub"
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: mongo-uri
             - name: MONGO_DB_NAME
-              value: "deployhub"
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: mongo-db-name
             - name: BUILDKIT_HOST
-              value: "tcp://buildkitd:1234"
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: buildkit-host
             - name: REGISTRY_ADDR
-              value: "654654525548.dkr.ecr.us-east-1.amazonaws.com/deployhub-apps"
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: registry-addr
             - name: REGISTRY_INSECURE
-              value: "false"
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: registry-insecure
             - name: PUBLIC_BASE_URL
-              value: "http://3.95.33.38:3081"
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: public-base-url
             - name: AWS_REGION
-              value: "us-east-1"
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: aws-region
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
           volumeMounts:
             - name: backend-data
               mountPath: /data
@@ -94,6 +148,9 @@ kind: Service
 metadata:
   name: backend
   namespace: deployhub
+  annotations:
+    # On k3s: NodePort is used directly
+    # On EKS: ALB controller uses ClusterIP + pod IPs via target-type: ip
 spec:
   selector:
     app: backend
@@ -101,4 +158,4 @@ spec:
     - port: 8000
       targetPort: 8000
       nodePort: 3081
-  type: NodePort
+  type: NodePort   # works on both k3s and EKS (ALB controller ignores type)

@@ -10,6 +10,8 @@ ProjectType = Literal["node", "python", "static", "unknown"]
 
 class ProjectCreate(BaseModel):
     repo_url: HttpUrl
+    context_path: str = ""
+    service_name: str | None = None
 
 
 class ApiErrorResponse(BaseModel):
@@ -20,6 +22,8 @@ class ProjectRecord(BaseModel):
     id: str = Field(alias="_id")
     repo_url: str
     normalized_repo_url: str
+    context_path: str = ""
+    service_name: str | None = None
     status: ProjectStatus = "created"
     project_type: ProjectType = "unknown"
     repo_path: str | None = None
@@ -39,6 +43,8 @@ class ProjectRecord(BaseModel):
 class ProjectSummary(BaseModel):
     id: str
     repo_url: str
+    context_path: str
+    service_name: str | None
     status: ProjectStatus
     project_type: ProjectType
     assigned_port: int | None

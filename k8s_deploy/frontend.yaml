@@ -27,6 +27,9 @@ kind: Service
 metadata:
   name: frontend
   namespace: deployhub
+  annotations:
+    # On k3s: NodePort is used directly
+    # On EKS: ALB controller uses pod IPs via target-type: ip
 spec:
   selector:
     app: frontend

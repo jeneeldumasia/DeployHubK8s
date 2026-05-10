@@ -7,6 +7,8 @@
 *.tfstate
 *.tfstate.backup
 .terraform.lock.hcl
+*.tfvars
+!*.tfvars.example
 
 # Python
 __pycache__/
@@ -25,3 +27,6 @@ repos/
 # OS files
 .DS_Store
 Thumbs.db
+
+# CI rendered manifests (contain substituted secrets — never commit)
+k8s_rendered/

@@ -1,0 +1,47 @@
+# ── Horizontal Pod Autoscaler — backend ──────────────────────────────────────
+#
+# Scales the backend deployment between 1 and 5 replicas based on CPU usage.
+# Requires the Kubernetes Metrics Server to be running (k3s ships it by default).
+#
+# Scale-up:   triggers when average CPU across all backend pods exceeds 70%
+# Scale-down: waits 5 minutes of low usage before removing pods (stabilization)
+#             to avoid thrashing during brief traffic spikes.
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend-hpa
+  namespace: deployhub
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300   # wait 5 min before scaling down
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60             # remove at most 1 pod per minute
+    scaleUp:
+      stabilizationWindowSeconds: 30    # react to spikes within 30s
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60             # add at most 2 pods per minute

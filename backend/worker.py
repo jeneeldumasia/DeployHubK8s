@@ -1,11 +1,18 @@
 import asyncio
 import shutil
 import os
+import aiohttp
 from datetime import UTC, datetime
 from pathlib import Path
 
 from database import append_build_log, get_project_by_id, update_project, utc_now
-from observability import deployhub_deployment_duration_seconds, deployhub_deployment_failures_total, log_event
+from observability import (
+    deployhub_deployment_duration_seconds,
+    deployhub_deployment_failures_total,
+    deployhub_deployment_success_total,
+    deployhub_health_check_failures_total,
+    log_event,
+)
 from utils.detector import detect_project_type
 from utils.docker import (
     DockerError,
@@ -21,7 +28,14 @@ from utils.git import GitError, clone_or_update_repo
 
 # Import K8s/BuildKit utilities
 from utils.buildkit import build_image as buildkit_build_image
-from utils.k8s import create_pod, delete_pod, get_occupied_node_ports, create_ingress, delete_ingress
+from utils.k8s import (
+    create_pod,
+    delete_pod,
+    get_occupied_node_ports,
+    create_ingress,
+    delete_ingress,
+    wait_for_pod_running,
+)
 from config import settings
 
 
@@ -107,13 +121,18 @@ class DeploymentWorker:
             repo_path = await clone_or_update_repo(project_id, project["normalized_repo_url"])
             await update_project(project_id, {"repo_path": str(repo_path)})
             await record_log(f"Repository ready at {repo_path}")
-            log_event("repo_cloned", project_id=project_id, repo_path=str(repo_path))
-
-            project_type, metadata = detect_project_type(repo_path)
+            
+            context_path = project.get("context_path") or ""
+            build_context = repo_path / context_path
+            
+            project_type, metadata = detect_project_type(build_context)
             await update_project(project_id, {"project_type": project_type})
             await record_log(f"Detected project type: {project_type}")
 
-            dockerfile_path = await self._resolve_dockerfile(project_id, repo_path, project_type, metadata, record_log)
+            # 3. Build & Deploy
+            dockerfile_path = await self._resolve_dockerfile(
+                project_id, build_context, project_type, metadata, record_log
+            )
             await update_project(project_id, {"dockerfile_path": str(dockerfile_path)})
             if dockerfile_path.name == "Dockerfile":
                 await record_log(f"Using repository Dockerfile at {dockerfile_path}")
@@ -124,24 +143,17 @@ class DeploymentWorker:
             container_port = self._default_container_port(project_type)
             await record_log(f"Using container port {container_port}")
 
+            image_tag = self.image_tag(project_id)
             if self.deployment_mode == "k8s":
-                await record_log(f"Building Docker image '{image_tag}' via BuildKit for Kubernetes")
-                log_event("k8s_build_started", project_id=project_id, image_tag=image_tag)
+                registry_image = f"{settings.ecr_registry}/{image_tag}"
+                await record_log(f"Building Docker image '{registry_image}' via BuildKit for Kubernetes")
                 
-                # Use in-cluster registry address from settings
-                if "/" in settings.registry_addr:
-                    # If registry_addr is a full repository path (e.g., ECR repo),
-                    # we use it as the base and use the project ID as the tag.
-                    registry_image = f"{settings.registry_addr}:{project_id}"
-                else:
-                    # For local/plain registries, use the repo-per-project approach
-                    registry_image = f"{settings.registry_addr}/{image_tag}"
-                
-                # Execute BuildKit synchronously as our wrapper uses subprocess.run
-                build_result = buildkit_build_image(
-                    context_path=str(repo_path),
+                from utils.buildkit import build_image as buildkit_build_image
+                build_result = await buildkit_build_image(
+                    image_tag=registry_image,
                     dockerfile_path=str(dockerfile_path),
-                    image_name=registry_image
+                    context_path=str(build_context),
+                    on_line=record_log
                 )
                 if build_result["logs"]:
                     for line in build_result["logs"].splitlines():
@@ -193,6 +205,21 @@ class DeploymentWorker:
                 else:
                     service_url = f"http://{host}"
 
+                # ── Post-deployment health check ──────────────────────────────
+                try:
+                    await self._health_check_pod(
+                        pod_name=container_name,
+                        node_port=assigned_port,
+                        record_log=record_log,
+                    )
+                except RuntimeError as health_exc:
+                    # Rollback: tear down the pod and ingress we just created
+                    await record_log(f"❌ Health check failed — rolling back: {health_exc}")
+                    log_event("health_check_failed", project_id=project_id, reason=str(health_exc))
+                    await delete_pod(container_name)
+                    await delete_ingress(container_name)
+                    raise RuntimeError(f"Post-deployment health check failed: {health_exc}") from health_exc
+
             else:
                 await record_log(f"Building Docker image '{image_tag}' via Docker daemon")
                 log_event("docker_build_started", project_id=project_id, image_tag=image_tag)
@@ -238,6 +265,7 @@ class DeploymentWorker:
             deployhub_deployment_duration_seconds.labels(action=action).observe(
                 (datetime.now(UTC) - started_at).total_seconds()
             )
+            deployhub_deployment_success_total.labels(action=action).inc()
             log_event("deployment_success", project_id=project_id, service_url=service_url)
 
         except Exception as exc:
@@ -431,3 +459,53 @@ class DeploymentWorker:
     def _summarize_error(exc: Exception) -> str:
         message = str(exc).strip()
         return message.splitlines()[0][:240] if message else exc.__class__.__name__
+
+    async def _health_check_pod(
+        self,
+        pod_name: str,
+        node_port: int,
+        record_log,
+        pod_ready_timeout: int = 120,
+        http_timeout: int = 60,
+        http_retries: int = 10,
+        http_retry_delay: float = 5.0,
+    ) -> None:
+        """
+        Two-stage post-deployment health check:
+          1. Wait for the K8s pod to reach Running+Ready state.
+          2. Probe the app via HTTP on its NodePort.
+        Raises RuntimeError on failure so the caller can trigger rollback.
+        """
+        await record_log("⏳ Waiting for pod to reach Running state...")
+        pod_result = await wait_for_pod_running(pod_name, timeout_seconds=pod_ready_timeout)
+        if pod_result["status"] != "running":
+            reason = pod_result.get("reason", "unknown")
+            deployhub_health_check_failures_total.labels(reason="pod_not_ready").inc()
+            raise RuntimeError(f"Pod never became ready: {reason}")
+
+        await record_log("✅ Pod is Running. Probing HTTP endpoint...")
+
+        # Derive the NodePort URL from the public base host
+        base_host = settings.public_base_url.replace("http://", "").replace("https://", "").split(":")[0]
+        probe_url = f"http://{base_host}:{node_port}/"
+
+        last_error: str = "no attempts made"
+        timeout = aiohttp.ClientTimeout(total=10)
+        for attempt in range(1, http_retries + 1):
+            try:
+                async with aiohttp.ClientSession(timeout=timeout) as session:
+                    async with session.get(probe_url, allow_redirects=True) as resp:
+                        # Accept any non-5xx response as "alive"
+                        if resp.status < 500:
+                            await record_log(f"✅ Health check passed (HTTP {resp.status}) on attempt {attempt}")
+                            return
+                        last_error = f"HTTP {resp.status}"
+            except Exception as exc:
+                last_error = str(exc)
+
+            if attempt < http_retries:
+                await record_log(f"⏳ Health check attempt {attempt}/{http_retries} failed ({last_error}), retrying in {http_retry_delay}s...")
+                await asyncio.sleep(http_retry_delay)
+
+        deployhub_health_check_failures_total.labels(reason="http_probe_failed").inc()
+        raise RuntimeError(f"App did not respond after {http_retries} attempts. Last error: {last_error}")

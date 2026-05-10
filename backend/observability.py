@@ -27,6 +27,23 @@ http_request_duration_seconds = Histogram(
     "http_request_duration_seconds", "HTTP request duration in seconds", ["method", "path"]
 )
 
+# Health check & rollback metrics
+deployhub_health_check_failures_total = Counter(
+    "deployhub_health_check_failures_total",
+    "Post-deployment health check failures that triggered rollback",
+    ["reason"],
+)
+deployhub_pod_restarts_total = Gauge(
+    "deployhub_pod_restarts_total",
+    "Total container restart count for a deployed pod",
+    ["pod_name"],
+)
+deployhub_deployment_success_total = Counter(
+    "deployhub_deployment_success_total",
+    "Total successful deployments (passed health check)",
+    ["action"],
+)
+
 
 def log_event(event: str, **fields: Any) -> None:
     payload = {"event": event, **fields}

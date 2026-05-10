@@ -1,0 +1,372 @@
+# ── Prometheus ────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: deployhub
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      # Scrape DeployHub backend metrics
+      - job_name: deployhub-backend
+        static_configs:
+          - targets: ['backend:8000']
+        metrics_path: /metrics
+
+      # Scrape Prometheus itself
+      - job_name: prometheus
+        static_configs:
+          - targets: ['localhost:9090']
+
+    # Alert rules file (loaded from ConfigMap below)
+    rule_files:
+      - /etc/prometheus/alerts.yml
+
+  alerts.yml: |
+    groups:
+      - name: deployhub
+        rules:
+          - alert: HighDeploymentFailureRate
+            expr: rate(deployhub_deployment_failures_total[5m]) > 0.1
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High deployment failure rate"
+              description: "More than 0.1 failures/sec over the last 5 minutes."
+
+          - alert: HealthCheckFailures
+            expr: increase(deployhub_health_check_failures_total[10m]) > 2
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Multiple health check failures"
+              description: "{{ $value }} health check failures in the last 10 minutes."
+
+          - alert: BackendDown
+            expr: up{job="deployhub-backend"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "DeployHub backend is unreachable"
+              description: "Prometheus cannot scrape the backend /metrics endpoint."
+
+          - alert: PodRestartingFrequently
+            expr: deployhub_pod_restarts_total > 5
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ $labels.pod_name }} is restarting frequently"
+              description: "Restart count is {{ $value }}."
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data-pvc
+  namespace: deployhub
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: deployhub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.52.0
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=15d"
+            - "--web.enable-lifecycle"
+          ports:
+            - containerPort: 9090
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+            - name: prometheus-data
+              mountPath: /prometheus
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+        - name: prometheus-data
+          persistentVolumeClaim:
+            claimName: prometheus-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: deployhub
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
+      nodePort: 3090
+  type: NodePort
+
+# ── Grafana ───────────────────────────────────────────────────────────────────
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: deployhub
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        url: http://prometheus:9090
+        access: proxy
+        isDefault: true
+        editable: false
+      - name: Loki
+        type: loki
+        url: http://loki:3100
+        access: proxy
+        isDefault: false
+        editable: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: deployhub
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: deployhub
+        folder: DeployHub
+        type: file
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-deployhub
+  namespace: deployhub
+data:
+  deployhub.json: |
+    {
+      "title": "DeployHub Overview",
+      "uid": "deployhub-overview",
+      "schemaVersion": 38,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "panels": [
+        {
+          "id": 1, "type": "stat", "title": "Total Projects",
+          "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+          "targets": [{ "expr": "deployhub_projects_total", "legendFormat": "Projects" }],
+          "options": { "colorMode": "background" }
+        },
+        {
+          "id": 2, "type": "stat", "title": "Running Pods",
+          "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+          "targets": [{ "expr": "deployhub_active_containers", "legendFormat": "Running" }],
+          "options": { "colorMode": "background" }
+        },
+        {
+          "id": 3, "type": "stat", "title": "Deployment Failures (1h)",
+          "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+          "targets": [{ "expr": "increase(deployhub_deployment_failures_total[1h])", "legendFormat": "Failures" }],
+          "options": { "colorMode": "background" }
+        },
+        {
+          "id": 4, "type": "stat", "title": "Health Check Failures (1h)",
+          "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+          "targets": [{ "expr": "increase(deployhub_health_check_failures_total[1h])", "legendFormat": "HC Failures" }],
+          "options": { "colorMode": "background" }
+        },
+        {
+          "id": 5, "type": "timeseries", "title": "Deployment Rate",
+          "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+          "targets": [
+            { "expr": "rate(deployhub_deployments_total[5m])", "legendFormat": "{{action}}" }
+          ]
+        },
+        {
+          "id": 6, "type": "timeseries", "title": "Deployment Duration (p50 / p95)",
+          "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+          "targets": [
+            { "expr": "histogram_quantile(0.50, rate(deployhub_deployment_duration_seconds_bucket[5m]))", "legendFormat": "p50" },
+            { "expr": "histogram_quantile(0.95, rate(deployhub_deployment_duration_seconds_bucket[5m]))", "legendFormat": "p95" }
+          ]
+        },
+        {
+          "id": 7, "type": "timeseries", "title": "HTTP Request Rate",
+          "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+          "targets": [
+            { "expr": "rate(http_requests_total[5m])", "legendFormat": "{{method}} {{path}} {{status_code}}" }
+          ]
+        },
+        {
+          "id": 8, "type": "timeseries", "title": "HTTP Latency p95 (ms)",
+          "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) * 1000", "legendFormat": "{{path}}" }
+          ]
+        },
+        {
+          "id": 9, "type": "table", "title": "Pod Restart Counts",
+          "gridPos": { "x": 0, "y": 20, "w": 12, "h": 6 },
+          "targets": [
+            { "expr": "deployhub_pod_restarts_total", "legendFormat": "{{pod_name}}", "instant": true }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data-pvc
+  namespace: deployhub
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: deployhub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        fsGroup: 472
+        runAsUser: 472
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.0.0
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-credentials
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-credentials
+                  key: admin-password
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: "/var/lib/grafana/dashboards/deployhub.json"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: grafana-data
+              mountPath: /var/lib/grafana
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: grafana-dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: grafana-dashboard-deployhub
+              mountPath: /var/lib/grafana/dashboards
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: grafana-data
+          persistentVolumeClaim:
+            claimName: grafana-data-pvc
+        - name: grafana-datasources
+          configMap:
+            name: grafana-datasources
+        - name: grafana-dashboards-provider
+          configMap:
+            name: grafana-dashboards-provider
+        - name: grafana-dashboard-deployhub
+          configMap:
+            name: grafana-dashboard-deployhub
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: deployhub
+spec:
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 3091
+  type: NodePort

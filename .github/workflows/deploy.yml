@@ -1,0 +1,292 @@
+name: CI/CD — Build, Scan & Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deploy target (eks or k3s)"
+        required: true
+        default: "eks"
+        type: choice
+        options: [eks, k3s]
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 654654525548.dkr.ecr.us-east-1.amazonaws.com
+  BACKEND_IMAGE: deployhub-backend
+  FRONTEND_IMAGE: deployhub-frontend
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 1 — Build & push images to ECR
+  # ────────────────────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.tag.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate image tag
+        id: tag
+        run: echo "tag=sha-$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build backend
+        run: |
+          docker build \
+            --tag $ECR_REGISTRY/$BACKEND_IMAGE:${{ steps.tag.outputs.tag }} \
+            --tag $ECR_REGISTRY/$BACKEND_IMAGE:latest \
+            ./backend
+
+      - name: Scan backend (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.tag.outputs.tag }}
+          format: table
+          exit-code: 0
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Push backend
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker push $ECR_REGISTRY/$BACKEND_IMAGE:${{ steps.tag.outputs.tag }}
+          docker push $ECR_REGISTRY/$BACKEND_IMAGE:latest
+
+      - name: Build frontend
+        run: |
+          docker build \
+            --tag $ECR_REGISTRY/$FRONTEND_IMAGE:${{ steps.tag.outputs.tag }} \
+            --tag $ECR_REGISTRY/$FRONTEND_IMAGE:latest \
+            ./frontend
+
+      - name: Scan frontend (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tag.outputs.tag }}
+          format: table
+          exit-code: 0
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Push frontend
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker push $ECR_REGISTRY/$FRONTEND_IMAGE:${{ steps.tag.outputs.tag }}
+          docker push $ECR_REGISTRY/$FRONTEND_IMAGE:latest
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 2a — Deploy to EKS (default for main branch)
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy-eks:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (github.event.inputs.environment == 'eks' || github.event.inputs.environment == '')
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.5"
+          terraform_wrapper: false
+
+      - name: Read Terraform outputs (EKS cluster name + ECR URLs)
+        id: tf
+        working-directory: terraform/environments/prod
+        run: |
+          terraform init -input=false
+          echo "cluster_name=$(terraform output -raw eks_cluster_name)"       >> $GITHUB_OUTPUT
+          echo "ecr_backend=$(terraform output -raw ecr_backend_url)"         >> $GITHUB_OUTPUT
+          echo "ecr_frontend=$(terraform output -raw ecr_frontend_url)"       >> $GITHUB_OUTPUT
+          echo "ecr_apps=$(terraform output -raw ecr_apps_url)"               >> $GITHUB_OUTPUT
+          echo "alb_dns=$(terraform output -raw alb_dns_name)"                >> $GITHUB_OUTPUT
+          echo "backend_sa_role=$(terraform output -raw backend_sa_role_arn)" >> $GITHUB_OUTPUT
+
+      - name: Configure kubectl for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region $AWS_REGION \
+            --name ${{ steps.tf.outputs.cluster_name }}
+
+      - name: Render k8s manifests
+        env:
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
+          ECR_BACKEND: ${{ steps.tf.outputs.ecr_backend }}
+          ECR_FRONTEND: ${{ steps.tf.outputs.ecr_frontend }}
+          ECR_APPS: ${{ steps.tf.outputs.ecr_apps }}
+          ALB_DNS: ${{ steps.tf.outputs.alb_dns }}
+          BACKEND_SA_ROLE_ARN: ${{ steps.tf.outputs.backend_sa_role }}
+          REPLACE_ME_GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
+          REPLACE_ME_GRAFANA_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          REPLACE_ME_MONGO_URI: "mongodb://mongo:27017/deployhub"
+          REPLACE_ME_REGISTRY_ADDR: ${{ steps.tf.outputs.ecr_apps }}
+          REPLACE_ME_PUBLIC_BASE_URL: "http://${{ steps.tf.outputs.alb_dns }}"
+        run: |
+          cp -r k8s_deploy/ k8s_rendered/
+
+          # Pin images to exact SHA tag
+          sed -i "s|deployhub-backend:latest|$ECR_BACKEND:$IMAGE_TAG|g" k8s_rendered/backend.yaml
+          sed -i "s|deployhub-frontend:latest|$ECR_FRONTEND:$IMAGE_TAG|g" k8s_rendered/frontend.yaml
+
+          # Inject IRSA role ARN into ServiceAccount
+          sed -i "s|\${BACKEND_SA_ROLE_ARN}|$BACKEND_SA_ROLE_ARN|g" k8s_rendered/backend.yaml
+
+          # Render secrets
+          envsubst < k8s_deploy/secrets.yaml > k8s_rendered/secrets.yaml
+
+      - name: Apply manifests to EKS
+        run: |
+          kubectl apply -f k8s_rendered/namespace.yaml
+          kubectl apply -f k8s_rendered/secrets.yaml
+          kubectl apply -f k8s_rendered/
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/backend  -n deployhub --timeout=180s
+          kubectl rollout status deployment/frontend -n deployhub --timeout=90s
+
+      - name: Smoke test
+        run: |
+          ALB=${{ steps.tf.outputs.alb_dns }}
+          echo "Probing http://$ALB/health ..."
+          for i in $(seq 1 12); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$ALB/health || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Backend healthy (HTTP $STATUS)"
+              exit 0
+            fi
+            echo "Attempt $i/12 — HTTP $STATUS, retrying in 10s..."
+            sleep 10
+          done
+          echo "❌ Backend did not become healthy"
+          exit 1
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          ALB=${{ steps.tf.outputs.alb_dns }}
+          echo "### EKS Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image tag** | \`${{ needs.build-and-push.outputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **UI** | http://$ALB |" >> $GITHUB_STEP_SUMMARY
+          echo "| **API** | http://$ALB/api |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Grafana** | http://$ALB/grafana |" >> $GITHUB_STEP_SUMMARY
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 2b — Deploy to k3s on EC2 (manual trigger or fallback)
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy-k3s:
+    name: Deploy to k3s (EC2)
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: |
+      github.ref == 'refs/heads/main' &&
+      github.event.inputs.environment == 'k3s'
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.5"
+          terraform_wrapper: false
+
+      - name: Read k3s Terraform outputs
+        id: tf
+        working-directory: terraform
+        run: |
+          terraform init -input=false
+          echo "ec2_ip=$(terraform output -raw ec2_public_ip 2>/dev/null || echo '${{ secrets.EC2_PUBLIC_IP }}')" >> $GITHUB_OUTPUT
+          echo "apps_ecr=$(terraform output -raw ecr_apps_repository_url 2>/dev/null || echo '${{ env.ECR_REGISTRY }}/deployhub-apps')" >> $GITHUB_OUTPUT
+
+      - name: Prepare manifests
+        env:
+          EC2_IP: ${{ steps.tf.outputs.ec2_ip }}
+          APPS_ECR: ${{ steps.tf.outputs.apps_ecr }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
+          REPLACE_ME_GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
+          REPLACE_ME_GRAFANA_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          REPLACE_ME_MONGO_URI: "mongodb://mongo:27017/deployhub"
+          REPLACE_ME_REGISTRY_ADDR: ${{ steps.tf.outputs.apps_ecr }}
+          REPLACE_ME_PUBLIC_BASE_URL: "http://${{ steps.tf.outputs.ec2_ip }}:3081"
+          BACKEND_SA_ROLE_ARN: ""
+        run: |
+          cp -r k8s_deploy/ k8s_rendered/
+          sed -i "s|deployhub-backend:latest|$ECR_REGISTRY/$BACKEND_IMAGE:$IMAGE_TAG|g" k8s_rendered/backend.yaml
+          sed -i "s|deployhub-frontend:latest|$ECR_REGISTRY/$FRONTEND_IMAGE:$IMAGE_TAG|g" k8s_rendered/frontend.yaml
+          sed -i "s|http://3.95.33.38|http://$EC2_IP|g" k8s_rendered/backend.yaml
+          sed -i 's|\${BACKEND_SA_ROLE_ARN}||g' k8s_rendered/backend.yaml
+          envsubst < k8s_deploy/secrets.yaml > k8s_rendered/secrets.yaml
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/deployhub.pem
+          chmod 600 ~/.ssh/deployhub.pem
+          ssh-keyscan -H ${{ steps.tf.outputs.ec2_ip }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy to EC2
+        run: |
+          scp -i ~/.ssh/deployhub.pem -r k8s_rendered/ ubuntu@${{ steps.tf.outputs.ec2_ip }}:/home/ubuntu/k8s_deploy/
+          ssh -i ~/.ssh/deployhub.pem ubuntu@${{ steps.tf.outputs.ec2_ip }} << 'EOF'
+            set -e
+            kubectl apply -f /home/ubuntu/k8s_deploy/namespace.yaml
+            kubectl apply -f /home/ubuntu/k8s_deploy/
+            kubectl rollout status deployment/backend  -n deployhub --timeout=120s
+            kubectl rollout status deployment/frontend -n deployhub --timeout=60s
+          EOF
+
+      - name: Smoke test
+        run: |
+          EC2_IP=${{ steps.tf.outputs.ec2_ip }}
+          for i in $(seq 1 10); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$EC2_IP:3081/health || echo "000")
+            if [ "$STATUS" = "200" ]; then echo "✅ Healthy"; exit 0; fi
+            echo "Attempt $i/10 — HTTP $STATUS, retrying..."
+            sleep 10
+          done
+          exit 1

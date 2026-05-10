@@ -7,3 +7,4 @@ python-multipart==0.0.20
 prometheus_client==0.21.1
 kubernetes==32.0.1
 boto3==1.37.5
+aiohttp==3.11.18

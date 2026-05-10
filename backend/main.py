@@ -36,12 +36,14 @@ from observability import (
     deployhub_active_containers,
     deployhub_deployments_total,
     deployhub_projects_total,
+    deployhub_pod_restarts_total,
     log_event,
     metrics_response,
 )
 from utils.docker import check_docker_available, count_running_deployhub_containers, get_container_logs
-from utils.k8s import check_k8s_available, count_running_deployhub_pods, get_pod_logs  # all async
-from utils.git import GitError, normalize_repo_url
+from utils.k8s import check_k8s_available, count_running_deployhub_pods, get_pod_logs, get_all_pod_restart_counts  # all async
+from utils.analyzer import RepoAnalyzer
+from utils.git import GitError, normalize_repo_url, clone_or_update_repo
 from worker import DeploymentWorker
 
 worker = DeploymentWorker(
@@ -83,6 +85,8 @@ def serialize_project_summary(document: dict) -> ProjectSummary:
     return ProjectSummary(
         id=str(document["_id"]),
         repo_url=document["repo_url"],
+        context_path=document.get("context_path", ""),
+        service_name=document.get("service_name"),
         status=document["status"],
         project_type=document.get("project_type", "unknown"),
         assigned_port=document.get("assigned_port"),
@@ -134,6 +138,24 @@ async def readiness() -> HealthResponse:
         return HealthResponse(status="ready", details={"mongodb": "connected", "docker": "connected" if docker_available else "unavailable"})
 
 
+@app.post("/api/analyze")
+async def analyze_repository(request: dict):
+    repo_url = request.get("repo_url")
+    if not repo_url:
+        raise HTTPException(status_code=400, detail="repo_url is required")
+    
+    try:
+        temp_id = "analysis-" + str(hash(repo_url))[:8]
+        repo_path = await clone_or_update_repo(temp_id, repo_url)
+        
+        analyzer = RepoAnalyzer(repo_path)
+        services = analyzer.analyze()
+        
+        return {"services": [s.__dict__ for s in services]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/projects", response_model=ProjectSummary, responses={400: {"model": ApiErrorResponse}})
 async def create_project_endpoint(payload: ProjectCreate) -> ProjectSummary:
     try:
@@ -141,17 +163,19 @@ async def create_project_endpoint(payload: ProjectCreate) -> ProjectSummary:
     except GitError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    existing = await get_project_by_normalized_repo_url(normalized_repo_url)
+    context_path = payload.context_path or ""
+    existing = await get_project_by_url_and_path(normalized_repo_url, context_path)
     if existing:
         return serialize_project_summary(existing)
 
-    now = utc_now()
+    project_id = str(uuid.uuid4())[:8]
     document = {
+        "id": project_id,
         "repo_url": str(payload.repo_url),
         "normalized_repo_url": normalized_repo_url,
-        "status": "created",
-        "project_type": "unknown",
-        "repo_path": None,
+        "context_path": context_path,
+        "service_name": payload.service_name,
+        "status": "queued",
         "dockerfile_path": None,
         "image_tag": None,
         "container_id": None,
@@ -350,7 +374,43 @@ async def metrics_endpoint() -> Response:
     deployhub_projects_total.set(await count_projects())
     if settings.deployment_mode == "k8s":
         deployhub_active_containers.set(await count_running_deployhub_pods())
+        # Refresh per-pod restart counts
+        restart_counts = await get_all_pod_restart_counts()
+        for pod_name, count in restart_counts.items():
+            deployhub_pod_restarts_total.labels(pod_name=pod_name).set(count)
     else:
         deployhub_active_containers.set(await count_running_deployhub_containers())
     metrics_payload, content_type = await metrics_response()
     return Response(content=metrics_payload, media_type=content_type)
+
+
+@app.get("/api/projects/{project_id}/health")
+async def get_project_health_endpoint(project_id: str):
+    """
+    Returns the live health status of a deployed project's pod.
+    Checks pod phase, container readiness, and restart count.
+    """
+    project = await get_project_by_id(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if settings.deployment_mode != "k8s":
+        raise HTTPException(status_code=400, detail="Health endpoint only available in k8s mode")
+
+    container_name = project.get("container_name")
+    if not container_name or project.get("status") not in ("running", "failed"):
+        return {"project_id": project_id, "status": project.get("status"), "pod": None}
+
+    from utils.k8s import get_pod_restart_count
+    restart_count = await get_pod_restart_count(container_name)
+    deployhub_pod_restarts_total.labels(pod_name=container_name).set(restart_count)
+
+    return {
+        "project_id": project_id,
+        "status": project.get("status"),
+        "service_url": project.get("service_url"),
+        "pod": {
+            "name": container_name,
+            "restart_count": restart_count,
+        },
+    }

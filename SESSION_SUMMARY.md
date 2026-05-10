@@ -20,6 +20,9 @@ DeployHub is fully migrated to a k3s Kubernetes cluster on AWS. It is capable of
 4. **Smart Build System**: Integrated BuildKit for in-cluster builds and ECR for private storage.
 5. **Universal Dependencies**: Auto-detection and installation of Linux packages (Tesseract, etc.) based on `requirements.txt`.
 6. **Premium UI Revamp**: Implemented a sophisticated "Oxide & Amber" and "Sand & Espresso" multi-theme system.
+7. **Health Checks + Auto-Rollback**: Post-deployment pod readiness + HTTP probe; auto-rollback on failure.
+8. **Observability Stack**: Prometheus (`:3090`) + Grafana (`:3091`) in-cluster with pre-built dashboard, alert rules, and pod restart tracking.
+9. **GitHub Actions CI/CD**: Full pipeline — lint, Docker build, Trivy image scan, ECR push, k8s deploy, smoke test.
 
 ## 🛠️ Environment & Credentials
 - **AWS Region**: `us-east-1`
@@ -29,8 +32,8 @@ DeployHub is fully migrated to a k3s Kubernetes cluster on AWS. It is capable of
 
 ## 🏃 Next Steps / TODO
 - [ ] **DNS Setup**: Point `*.jeneeldumasia.codes` (Wildcard A record) to `3.95.33.38`.
-- [ ] **Health Checks**: Implement post-deployment validation and auto-rollback.
-- [ ] **Observability**: Deploy Prometheus/Grafana stack for cluster metrics.
+- [x] **Health Checks**: Post-deployment pod readiness + HTTP probe with auto-rollback on failure.
+- [x] **Observability**: Prometheus + Grafana stack deployed in-cluster with pre-built DeployHub dashboard.
 - [ ] **SSL**: Integrate `cert-manager` for automatic HTTPS on subdomains.
 
 ## 💡 Instructions for Resuming

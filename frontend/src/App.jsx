@@ -21,6 +21,8 @@ export default function App() {
   const [actionInFlight, setActionInFlight] = useState("");
   const [streamState, setStreamState] = useState("idle");
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
+  const [detectedServices, setDetectedServices] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -110,19 +112,56 @@ export default function App() {
   }, [selectedProjectId, streamState]);
 
   async function handleCreateProject(event) {
-    event.preventDefault();
-    setActionInFlight("create");
+    if (event) event.preventDefault();
     setError("");
+    setAnalyzing(true);
+    setDetectedServices(null);
 
     try {
-      await parseResponse(
-        await fetch(`${apiBase}/projects`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ repo_url: repoUrl }),
+      const response = await fetch(`${apiBase}/analyze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo_url: repoUrl }),
+      });
+
+      if (!response.ok) throw new Error("Analysis failed");
+      const data = await response.json();
+      
+      if (data.services && data.services.length > 1) {
+        setDetectedServices(data.services);
+      } else if (data.services && data.services.length === 1) {
+        // Only one service? Just deploy it.
+        await deployService(data.services[0]);
+      } else {
+        setError("No deployable services detected in this repository.");
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  async function deployService(service) {
+    setActionInFlight("create");
+    try {
+      const response = await fetch(`${apiBase}/projects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          repo_url: repoUrl,
+          context_path: service.path,
+          service_name: service.name
         }),
-      );
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to create project");
+      }
+
       setRepoUrl("");
+      setDetectedServices(null);
       await loadProjects();
     } catch (err) {
       setError(err.message);
@@ -207,10 +246,30 @@ export default function App() {
               onChange={(event) => setRepoUrl(event.target.value)}
               required
             />
-            <button type="submit" disabled={Boolean(actionInFlight)}>
-              {actionInFlight === "create" ? "Initializing..." : "Add Project"}
+            <button type="submit" disabled={analyzing || Boolean(actionInFlight)}>
+              {analyzing ? "Analyzing..." : (actionInFlight === "create" ? "Initializing..." : "Add Project")}
             </button>
           </form>
+          
+          {detectedServices && (
+            <div className="service-selector panel" style={{marginTop: '2rem', background: 'var(--bg-deep)'}}>
+              <h3>Detected Services</h3>
+              <p className="subtitle">We found multiple deployable units. Which one would you like to deploy?</p>
+              <div className="project-list" style={{marginTop: '1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '1rem'}}>
+                {detectedServices.map((service, idx) => (
+                  <div key={idx} className="project-card" style={{cursor: 'default'}}>
+                    <strong>{service.name}</strong>
+                    <div className="card-meta">
+                      <span>{service.type} {service.framework ? `(${service.framework})` : ''}</span>
+                      <button onClick={() => deployService(service)}>Deploy</button>
+                    </div>
+                    <span style={{fontSize: '0.7rem', color: 'var(--text-muted)'}}>Path: {service.path || '/'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {error ? <p className="error" style={{marginTop: '1rem'}}>{error}</p> : null}
         </div>
       </section>
@@ -226,9 +285,9 @@ export default function App() {
                 className={`project-card ${selectedProjectId === project.id ? "selected" : ""}`}
                 onClick={() => setSelectedProjectId(project.id)}
               >
-                <strong>{project.repo_url}</strong>
+                <strong>{project.service_name || project.repo_url}</strong>
                 <div className="card-meta">
-                  <span>{project.project_type}</span>
+                  <span>{project.project_type} {project.context_path ? `(${project.context_path})` : ''}</span>
                   <div style={{display: 'flex', gap: '0.5rem', alignItems: 'center'}}>
                     <span className={`status-badge status-${project.status}`}>{project.status}</span>
                     {project.service_url ? (
@@ -257,6 +316,8 @@ export default function App() {
           {projectForActions ? (
             <>
               <div className="detail-grid">
+                <div><span>Service Name</span><strong>{projectForActions.service_name || "Root"}</strong></div>
+                <div><span>Context Path</span><strong>{projectForActions.context_path || "/"}</strong></div>
                 <div><span>Repo URL</span><strong>{projectForActions.repo_url}</strong></div>
                 <div><span>Project Type</span><strong>{projectForActions.project_type}</strong></div>
                 <div><span>Service URL</span><strong>{projectForActions.service_url || "Not deployed yet"}</strong></div>

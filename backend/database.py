@@ -65,6 +65,10 @@ async def get_project_by_id(project_id: str) -> dict[str, Any] | None:
     return await get_projects_collection().find_one({"_id": object_id})
 
 
+async def get_project_by_url_and_path(normalized_repo_url: str, context_path: str) -> dict[str, Any] | None:
+    return await get_projects_collection().find_one({"normalized_repo_url": normalized_repo_url, "context_path": context_path})
+
+
 async def get_project_by_normalized_repo_url(normalized_repo_url: str) -> dict[str, Any] | None:
     return await get_projects_collection().find_one({"normalized_repo_url": normalized_repo_url})
 

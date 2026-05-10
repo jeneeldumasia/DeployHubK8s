@@ -1,0 +1,121 @@
+name: CI — Lint & Build Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Validate backend — lint + import check
+  # ────────────────────────────────────────────────────────────────────────────
+  backend-lint:
+    name: Backend — Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet ruff
+          pip install --quiet -r backend/requirements.txt
+
+      - name: Ruff lint
+        run: ruff check backend/ --output-format=github
+
+      - name: Check imports resolve
+        run: python -c "import sys; sys.path.insert(0, 'backend'); import main"
+        env:
+          MONGO_URI: mongodb://localhost:27017/test
+          PUBLIC_BASE_URL: http://localhost
+          DEPLOYMENT_MODE: k8s
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Validate frontend — install + build
+  # ────────────────────────────────────────────────────────────────────────────
+  frontend-build:
+    name: Frontend — Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package.json
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: frontend
+
+      - name: Build
+        run: npm run build
+        working-directory: frontend
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Validate Docker images build without errors
+  # ────────────────────────────────────────────────────────────────────────────
+  docker-build:
+    name: Docker — Build images
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: false
+          tags: deployhub-backend:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build frontend image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: false
+          tags: deployhub-frontend:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Validate Terraform formatting
+  # ────────────────────────────────────────────────────────────────────────────
+  terraform-validate:
+    name: Terraform — Format & Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.5"
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+        working-directory: terraform
+
+      - name: Terraform init (local only)
+        run: terraform init -backend=false
+        working-directory: terraform
+
+      - name: Terraform validate
+        run: terraform validate
+        working-directory: terraform

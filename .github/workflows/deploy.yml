@@ -149,6 +149,14 @@ jobs:
         working-directory: terraform/environments/prod
         run: |
           terraform init -input=false
+
+          if [ ! -f terraform.tfvars ]; then
+            cp terraform.tfvars.example terraform.tfvars
+            sed -i "s/CHANGE_ME_STRONG_PASSWORD/${{ secrets.GRAFANA_ADMIN_PASSWORD }}/" terraform.tfvars
+          fi
+
+          terraform apply -auto-approve -input=false
+
           echo "cluster_name=$(terraform output -raw eks_cluster_name)"       >> $GITHUB_OUTPUT
           echo "ecr_backend=$(terraform output -raw ecr_backend_url)"         >> $GITHUB_OUTPUT
           echo "ecr_frontend=$(terraform output -raw ecr_frontend_url)"       >> $GITHUB_OUTPUT

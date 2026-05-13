@@ -30,3 +30,6 @@ Thumbs.db
 
 # CI rendered manifests (contain substituted secrets — never commit)
 k8s_rendered/
+
+# GitHub Actions logs
+logs/

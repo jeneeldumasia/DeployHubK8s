@@ -60,6 +60,13 @@ jobs:
           aws ecr describe-repositories --repository-names $FRONTEND_IMAGE --region $AWS_REGION 2>/dev/null || \
             aws ecr create-repository --repository-name $FRONTEND_IMAGE --region $AWS_REGION
 
+      - name: Import existing ECR repos into Terraform state
+        working-directory: terraform/environments/prod
+        run: |
+          terraform import 'module.ecr.aws_ecr_repository.repos["deployhub-backend"]' deployhub-backend 2>/dev/null || true
+          terraform import 'module.ecr.aws_ecr_repository.repos["deployhub-frontend"]' deployhub-frontend 2>/dev/null || true
+          terraform import 'module.ecr.aws_ecr_repository.repos["deployhub-apps"]' deployhub-apps 2>/dev/null || true
+
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 

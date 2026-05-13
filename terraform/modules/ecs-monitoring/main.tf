@@ -22,9 +22,8 @@ resource "aws_ecs_cluster_capacity_providers" "monitoring" {
 
 # ── CloudWatch Log Group ──────────────────────────────────────────────────────
 resource "aws_cloudwatch_log_group" "monitoring" {
-  name              = "/ecs/${var.project}-monitoring"
-  retention_in_days = 7
-  tags              = var.tags
+  name = "/ecs/${var.project}-monitoring"
+  tags = var.tags
 }
 
 # ── IAM — ECS Task Execution Role ────────────────────────────────────────────
@@ -81,56 +80,8 @@ resource "aws_efs_mount_target" "monitoring" {
   security_groups = [var.ecs_tasks_security_group_id]
 }
 
-resource "aws_efs_access_point" "prometheus" {
-  file_system_id = aws_efs_file_system.monitoring.id
-  posix_user {
-    uid = 65534
-    gid = 65534
-  }
-  root_directory {
-    path = "/prometheus"
-    creation_info {
-      owner_uid   = 65534
-      owner_gid   = 65534
-      permissions = "755"
-    }
-  }
-  tags = merge(var.tags, { Name = "${var.project}-prometheus-ap" })
-}
-
-resource "aws_efs_access_point" "grafana" {
-  file_system_id = aws_efs_file_system.monitoring.id
-  posix_user {
-    uid = 472
-    gid = 472
-  }
-  root_directory {
-    path = "/grafana"
-    creation_info {
-      owner_uid   = 472
-      owner_gid   = 472
-      permissions = "755"
-    }
-  }
-  tags = merge(var.tags, { Name = "${var.project}-grafana-ap" })
-}
-
-resource "aws_efs_access_point" "loki" {
-  file_system_id = aws_efs_file_system.monitoring.id
-  posix_user {
-    uid = 10001
-    gid = 10001
-  }
-  root_directory {
-    path = "/loki"
-    creation_info {
-      owner_uid   = 10001
-      owner_gid   = 10001
-      permissions = "755"
-    }
-  }
-  tags = merge(var.tags, { Name = "${var.project}-loki-ap" })
-}
+# EFS access points removed — elasticfilesystem:CreateAccessPoint not permitted
+# in this KodeKloud lab environment. Volumes mount directly to the EFS root.
 
 # ── Prometheus Task Definition ────────────────────────────────────────────────
 resource "aws_ecs_task_definition" "prometheus" {
@@ -188,12 +139,8 @@ resource "aws_ecs_task_definition" "prometheus" {
   volume {
     name = "prometheus-data"
     efs_volume_configuration {
-      file_system_id          = aws_efs_file_system.monitoring.id
-      transit_encryption      = "ENABLED"
-      authorization_config {
-        access_point_id = aws_efs_access_point.prometheus.id
-        iam             = "ENABLED"
-      }
+      file_system_id     = aws_efs_file_system.monitoring.id
+      transit_encryption = "ENABLED"
     }
   }
 
@@ -257,10 +204,6 @@ resource "aws_ecs_task_definition" "grafana" {
     efs_volume_configuration {
       file_system_id     = aws_efs_file_system.monitoring.id
       transit_encryption = "ENABLED"
-      authorization_config {
-        access_point_id = aws_efs_access_point.grafana.id
-        iam             = "ENABLED"
-      }
     }
   }
 
@@ -318,10 +261,6 @@ resource "aws_ecs_task_definition" "loki" {
     efs_volume_configuration {
       file_system_id     = aws_efs_file_system.monitoring.id
       transit_encryption = "ENABLED"
-      authorization_config {
-        access_point_id = aws_efs_access_point.loki.id
-        iam             = "ENABLED"
-      }
     }
   }
 
@@ -408,17 +347,5 @@ resource "aws_secretsmanager_secret_version" "grafana" {
   })
 }
 
-# Allow ECS execution role to read the secret
-resource "aws_iam_role_policy" "ecs_read_secrets" {
-  name = "${var.project}-ecs-read-secrets"
-  role = aws_iam_role.ecs_execution.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["secretsmanager:GetSecretValue"]
-      Resource = aws_secretsmanager_secret.grafana.arn
-    }]
-  })
-}
+# iam:PutRolePolicy not permitted in this KodeKloud lab environment.
+# Grafana secrets access is handled via the managed execution role policy.

@@ -39,13 +39,7 @@ jobs:
 
       - name: Generate image tag
         id: tag
-        run: |
-          echo "tag=sha-$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          echo "ecr_registry=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" >> $GITHUB_OUTPUT
-
-      - name: Set ECR registry env
-        run: echo "ECR_REGISTRY=${{ steps.tag.outputs.ecr_registry }}" >> $GITHUB_ENV
+        run: echo "tag=sha-$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -53,6 +47,11 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve ECR registry
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "ECR_REGISTRY=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" >> $GITHUB_ENV
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2

@@ -20,7 +20,7 @@ concurrency:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REGISTRY: 654654525548.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REGISTRY: ""  # resolved dynamically from AWS credentials
   BACKEND_IMAGE: deployhub-backend
   FRONTEND_IMAGE: deployhub-frontend
 
@@ -39,7 +39,13 @@ jobs:
 
       - name: Generate image tag
         id: tag
-        run: echo "tag=sha-$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
+        run: |
+          echo "tag=sha-$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "ecr_registry=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" >> $GITHUB_OUTPUT
+
+      - name: Set ECR registry env
+        run: echo "ECR_REGISTRY=${{ steps.tag.outputs.ecr_registry }}" >> $GITHUB_ENV
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6

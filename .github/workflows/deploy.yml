@@ -53,6 +53,13 @@ jobs:
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           echo "ECR_REGISTRY=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" >> $GITHUB_ENV
 
+      - name: Ensure ECR repositories exist
+        run: |
+          aws ecr describe-repositories --repository-names $BACKEND_IMAGE --region $AWS_REGION 2>/dev/null || \
+            aws ecr create-repository --repository-name $BACKEND_IMAGE --region $AWS_REGION
+          aws ecr describe-repositories --repository-names $FRONTEND_IMAGE --region $AWS_REGION 2>/dev/null || \
+            aws ecr create-repository --repository-name $FRONTEND_IMAGE --region $AWS_REGION
+
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 

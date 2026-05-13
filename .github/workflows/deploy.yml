@@ -71,6 +71,7 @@ jobs:
       - name: Push backend
         if: github.ref == 'refs/heads/main'
         run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
           docker push $ECR_REGISTRY/$BACKEND_IMAGE:${{ steps.tag.outputs.tag }}
           docker push $ECR_REGISTRY/$BACKEND_IMAGE:latest
 
@@ -93,6 +94,7 @@ jobs:
       - name: Push frontend
         if: github.ref == 'refs/heads/main'
         run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
           docker push $ECR_REGISTRY/$FRONTEND_IMAGE:${{ steps.tag.outputs.tag }}
           docker push $ECR_REGISTRY/$FRONTEND_IMAGE:latest
 

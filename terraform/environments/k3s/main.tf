@@ -8,10 +8,11 @@ terraform {
 
   backend "s3" {
     bucket         = "deployhub-tfstate"
-    key            = "environments/k3s/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "deployhub-tfstate-lock"
     encrypt        = true
+    # key is injected at runtime via -backend-config so each AWS account
+    # gets its own state and never collides with a previous lab session
   }
 }
 

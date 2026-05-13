@@ -83,30 +83,51 @@ resource "aws_efs_mount_target" "monitoring" {
 
 resource "aws_efs_access_point" "prometheus" {
   file_system_id = aws_efs_file_system.monitoring.id
-  posix_user     { uid = 65534; gid = 65534 }
+  posix_user {
+    uid = 65534
+    gid = 65534
+  }
   root_directory {
     path = "/prometheus"
-    creation_info { owner_uid = 65534; owner_gid = 65534; permissions = "755" }
+    creation_info {
+      owner_uid   = 65534
+      owner_gid   = 65534
+      permissions = "755"
+    }
   }
   tags = merge(var.tags, { Name = "${var.project}-prometheus-ap" })
 }
 
 resource "aws_efs_access_point" "grafana" {
   file_system_id = aws_efs_file_system.monitoring.id
-  posix_user     { uid = 472; gid = 472 }
+  posix_user {
+    uid = 472
+    gid = 472
+  }
   root_directory {
     path = "/grafana"
-    creation_info { owner_uid = 472; owner_gid = 472; permissions = "755" }
+    creation_info {
+      owner_uid   = 472
+      owner_gid   = 472
+      permissions = "755"
+    }
   }
   tags = merge(var.tags, { Name = "${var.project}-grafana-ap" })
 }
 
 resource "aws_efs_access_point" "loki" {
   file_system_id = aws_efs_file_system.monitoring.id
-  posix_user     { uid = 10001; gid = 10001 }
+  posix_user {
+    uid = 10001
+    gid = 10001
+  }
   root_directory {
     path = "/loki"
-    creation_info { owner_uid = 10001; owner_gid = 10001; permissions = "755" }
+    creation_info {
+      owner_uid   = 10001
+      owner_gid   = 10001
+      permissions = "755"
+    }
   }
   tags = merge(var.tags, { Name = "${var.project}-loki-ap" })
 }

@@ -175,10 +175,15 @@ jobs:
         run: |
           terraform init -input=false
 
+          # Import existing ECR repos so Terraform doesn't try to recreate them
+          terraform import 'module.ecr.aws_ecr_repository.repos["deployhub-backend"]'  deployhub-backend  2>/dev/null || true
+          terraform import 'module.ecr.aws_ecr_repository.repos["deployhub-frontend"]' deployhub-frontend 2>/dev/null || true
+          terraform import 'module.ecr.aws_ecr_repository.repos["deployhub-apps"]'     deployhub-apps     2>/dev/null || true
+
           terraform apply -auto-approve -input=false
 
-          echo "ec2_ip=$(terraform output -raw ec2_public_ip)"                   >> $GITHUB_OUTPUT
-          echo "apps_ecr=$(terraform output -raw ecr_apps_repository_url)"       >> $GITHUB_OUTPUT
+          echo "ec2_ip=$(terraform output -raw ec2_public_ip)"             >> $GITHUB_OUTPUT
+          echo "apps_ecr=$(terraform output -raw ecr_apps_repository_url)" >> $GITHUB_OUTPUT
 
       - name: Apply secrets to cluster
         env:

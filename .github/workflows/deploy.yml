@@ -138,6 +138,12 @@ jobs:
           terraform_version: "1.8.5"
           terraform_wrapper: false
 
+      - name: Bootstrap Terraform remote state
+        working-directory: terraform/bootstrap
+        run: |
+          terraform init -input=false
+          terraform apply -auto-approve
+
       - name: Read Terraform outputs (EKS cluster name + ECR URLs)
         id: tf
         working-directory: terraform/environments/prod

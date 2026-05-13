@@ -6,16 +6,12 @@ output "ssh_command" {
   value = "ssh ubuntu@${aws_instance.k3s.public_ip}"
 }
 
-output "ecr_backend_repository_url" {
-  value = module.ecr.repository_urls["deployhub-backend"]
-}
-
-output "ecr_frontend_repository_url" {
-  value = module.ecr.repository_urls["deployhub-frontend"]
+output "ecr_registry" {
+  value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com"
 }
 
 output "ecr_apps_repository_url" {
-  value = module.ecr.repository_urls["deployhub-apps"]
+  value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com/deployhub-apps"
 }
 
 output "app_url" {

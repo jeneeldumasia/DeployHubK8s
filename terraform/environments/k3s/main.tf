@@ -38,6 +38,11 @@ module "ecr" {
   tags = local.tags
 }
 
+# ECR repos are managed via AWS CLI in the build-and-push job (idempotent).
+# Removed from Terraform to avoid RepositoryAlreadyExistsException on re-runs.
+
+data "aws_caller_identity" "current" {}
+
 data "aws_vpc" "default" {
   default = true
 }

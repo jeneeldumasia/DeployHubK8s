@@ -59,13 +59,14 @@ jobs:
             ./backend
 
       - name: Scan backend (Trivy)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.tag.outputs.tag }}
-          format: table
-          exit-code: 0
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.61.0
+          trivy image \
+            --format table \
+            --exit-code 0 \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            $ECR_REGISTRY/$BACKEND_IMAGE:${{ steps.tag.outputs.tag }}
 
       - name: Push backend
         if: github.ref == 'refs/heads/main'
@@ -81,13 +82,13 @@ jobs:
             ./frontend
 
       - name: Scan frontend (Trivy)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tag.outputs.tag }}
-          format: table
-          exit-code: 0
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
+        run: |
+          trivy image \
+            --format table \
+            --exit-code 0 \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            $ECR_REGISTRY/$FRONTEND_IMAGE:${{ steps.tag.outputs.tag }}
 
       - name: Push frontend
         if: github.ref == 'refs/heads/main'

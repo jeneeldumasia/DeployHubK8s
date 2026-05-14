@@ -203,7 +203,7 @@ jobs:
           aws ec2-instance-connect send-ssh-public-key \
             --region $AWS_REGION \
             --instance-id ${{ steps.tf.outputs.instance_id }} \
-            --os-user ubuntu \
+            --instance-os-user ubuntu \
             --ssh-public-key file://~/.ssh/deployhub.pub
 
       - name: Configure SSH known hosts

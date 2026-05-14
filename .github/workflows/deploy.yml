@@ -179,6 +179,7 @@ jobs:
       - name: Generate ephemeral SSH key pair
         id: ssh
         run: |
+          mkdir -p ~/.ssh
           ssh-keygen -t ed25519 -f ~/.ssh/deployhub -N "" -C "deployhub-ci"
           echo "public_key=$(cat ~/.ssh/deployhub.pub)" >> $GITHUB_OUTPUT
 

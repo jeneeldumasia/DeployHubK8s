@@ -29,19 +29,6 @@ locals {
   }
 }
 
-module "ecr" {
-  source = "../../modules/ecr"
-  repository_names = [
-    "deployhub-backend",
-    "deployhub-frontend",
-    "deployhub-apps",
-  ]
-  tags = local.tags
-}
-
-# ECR repos are managed via AWS CLI in the build-and-push job (idempotent).
-# Removed from Terraform to avoid RepositoryAlreadyExistsException on re-runs.
-
 data "aws_caller_identity" "current" {}
 
 data "aws_vpc" "default" {

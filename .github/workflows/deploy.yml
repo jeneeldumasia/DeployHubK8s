@@ -246,34 +246,52 @@ jobs:
       - name: Deploy to EC2
         env:
           ECR_REGISTRY: ${{ needs.build-and-push.outputs.ecr-registry }}
-          AWS_REGION: ${{ env.AWS_REGION }}
         run: |
-          ssh -i ~/.ssh/deployhub ubuntu@${{ steps.tf.outputs.ec2_ip }} "mkdir -p /home/ubuntu/k8s_deploy"
-          scp -i ~/.ssh/deployhub -r k8s_rendered/. ubuntu@${{ steps.tf.outputs.ec2_ip }}:/home/ubuntu/k8s_deploy/
-          ssh -i ~/.ssh/deployhub ubuntu@${{ steps.tf.outputs.ec2_ip }} << EOF
-            set -e
+          EC2_IP=${{ steps.tf.outputs.ec2_ip }}
+          INSTANCE_ID=${{ steps.tf.outputs.instance_id }}
 
-            # Create ECR image pull secret using the instance IAM role
-            ECR_PASSWORD=\$(aws ecr get-login-password --region $AWS_REGION)
-            kubectl create namespace deployhub --dry-run=client -o yaml | kubectl apply -f -
-            kubectl create secret docker-registry ecr-private-key \
-              --namespace deployhub \
-              --docker-server=$ECR_REGISTRY \
-              --docker-username=AWS \
-              --docker-password="\$ECR_PASSWORD" \
-              --dry-run=client -o yaml | kubectl apply -f -
+          ssh -i ~/.ssh/deployhub ubuntu@$EC2_IP "mkdir -p /home/ubuntu/k8s_deploy"
+          scp -i ~/.ssh/deployhub -r k8s_rendered/. ubuntu@$EC2_IP:/home/ubuntu/k8s_deploy/
 
-            kubectl apply -f /home/ubuntu/k8s_deploy/namespace.yaml
-            kubectl apply -f /home/ubuntu/k8s_deploy/
-            kubectl rollout status deployment/backend  -n deployhub --timeout=300s || {
-              echo "=== backend pod describe ==="
-              kubectl describe pod -n deployhub -l app=backend
-              echo "=== backend pod logs ==="
-              kubectl logs -n deployhub -l app=backend --tail=50 || true
-              exit 1
-            }
-            kubectl rollout status deployment/frontend -n deployhub --timeout=120s
-          EOF
+          # Write the deploy script to the instance
+          cat > /tmp/deploy.sh << SCRIPT
+          #!/bin/bash
+          set -e
+          ECR_PASSWORD=\$(aws ecr get-login-password --region $AWS_REGION)
+          kubectl create namespace deployhub --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret docker-registry ecr-private-key \
+            --namespace deployhub \
+            --docker-server=$ECR_REGISTRY \
+            --docker-username=AWS \
+            --docker-password="\$ECR_PASSWORD" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f /home/ubuntu/k8s_deploy/namespace.yaml
+          kubectl apply -f /home/ubuntu/k8s_deploy/
+          kubectl rollout status deployment/backend  -n deployhub --timeout=300s || {
+            echo "=== backend pod describe ==="
+            kubectl describe pod -n deployhub -l app=backend
+            echo "=== backend pod logs ==="
+            kubectl logs -n deployhub -l app=backend --tail=50 || true
+            exit 1
+          }
+          kubectl rollout status deployment/frontend -n deployhub --timeout=120s
+          SCRIPT
+
+          scp -i ~/.ssh/deployhub /tmp/deploy.sh ubuntu@$EC2_IP:/home/ubuntu/deploy.sh
+          ssh -i ~/.ssh/deployhub ubuntu@$EC2_IP "chmod +x /home/ubuntu/deploy.sh"
+
+          # Re-push key immediately before the long-running command to reset the 60s window
+          aws ec2-instance-connect send-ssh-public-key \
+            --region $AWS_REGION \
+            --instance-id $INSTANCE_ID \
+            --instance-os-user ubuntu \
+            --ssh-public-key file://~/.ssh/deployhub.pub
+
+          # Run with ServerAliveInterval to prevent connection drops during long rollouts
+          ssh -i ~/.ssh/deployhub \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
+            ubuntu@$EC2_IP "bash /home/ubuntu/deploy.sh"
 
       - name: Smoke test
         run: |

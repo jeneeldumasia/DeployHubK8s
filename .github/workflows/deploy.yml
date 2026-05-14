@@ -246,7 +246,7 @@ jobs:
       - name: Deploy to EC2
         run: |
           ssh -i ~/.ssh/deployhub ubuntu@${{ steps.tf.outputs.ec2_ip }} "mkdir -p /home/ubuntu/k8s_deploy"
-          scp -i ~/.ssh/deployhub -r k8s_rendered/ ubuntu@${{ steps.tf.outputs.ec2_ip }}:/home/ubuntu/k8s_deploy/
+          scp -i ~/.ssh/deployhub -r k8s_rendered/. ubuntu@${{ steps.tf.outputs.ec2_ip }}:/home/ubuntu/k8s_deploy/
           ssh -i ~/.ssh/deployhub ubuntu@${{ steps.tf.outputs.ec2_ip }} << 'EOF'
             set -e
             kubectl apply -f /home/ubuntu/k8s_deploy/namespace.yaml

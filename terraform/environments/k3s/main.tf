@@ -44,12 +44,6 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-resource "aws_key_pair" "deployhub" {
-  count      = var.public_key != "" ? 1 : 0
-  key_name   = "${local.project}-k3s-key"
-  public_key = var.public_key
-}
-
 resource "aws_iam_role" "k3s_node" {
   name = "${local.project}-k3s-node-role"
   assume_role_policy = jsonencode({
@@ -124,9 +118,11 @@ resource "aws_security_group" "k3s" {
 resource "aws_instance" "k3s" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = var.instance_type
-  key_name               = var.public_key != "" ? aws_key_pair.deployhub[0].key_name : null
   iam_instance_profile   = aws_iam_instance_profile.k3s.name
   vpc_security_group_ids = [aws_security_group.k3s.id]
+
+  # No key_name — SSH access is granted at runtime via EC2 Instance Connect,
+  # which pushes an ephemeral public key without requiring a pre-provisioned key pair.
 
   root_block_device {
     volume_size = 30
@@ -136,7 +132,7 @@ resource "aws_instance" "k3s" {
   user_data = <<-EOF
     #!/bin/bash
     set -e
-    apt-get update && apt-get install -y curl unzip
+    apt-get update && apt-get install -y curl unzip ec2-instance-connect
     curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
     unzip awscliv2.zip && ./aws/install
     PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)

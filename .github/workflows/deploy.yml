@@ -177,11 +177,10 @@ jobs:
             --region $AWS_REGION
 
       - name: Generate ephemeral SSH key pair
-        id: ssh
         run: |
           mkdir -p ~/.ssh
-          ssh-keygen -t ed25519 -f ~/.ssh/deployhub -N "" -C "deployhub-ci"
-          echo "public_key=$(cat ~/.ssh/deployhub.pub)" >> $GITHUB_OUTPUT
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/deployhub -N "" -C "deployhub-ci"
+          chmod 600 ~/.ssh/deployhub
 
       - name: Provision k3s EC2 with Terraform
         id: tf
@@ -191,16 +190,24 @@ jobs:
           terraform init -input=false \
             -backend-config="key=environments/k3s/${{ needs.build-and-push.outputs.account-id }}/terraform.tfstate"
 
-          # Inject the ephemeral public key so the runner can SSH in
-          terraform apply -auto-approve -input=false \
-            -var="public_key=${{ steps.ssh.outputs.public_key }}"
+          terraform apply -auto-approve -input=false
 
           echo "ec2_ip=$(terraform output -raw ec2_public_ip)"             >> $GITHUB_OUTPUT
+          echo "instance_id=$(terraform output -raw ec2_instance_id)"      >> $GITHUB_OUTPUT
           echo "apps_ecr=$(terraform output -raw ecr_apps_repository_url)" >> $GITHUB_OUTPUT
 
-      - name: Configure SSH
+      - name: Push ephemeral public key via EC2 Instance Connect
         run: |
-          chmod 600 ~/.ssh/deployhub
+          # EC2 Instance Connect pushes the public key to the instance for 60 seconds —
+          # no pre-provisioned key pair needed, works on any instance in any account
+          aws ec2-instance-connect send-ssh-public-key \
+            --region $AWS_REGION \
+            --instance-id ${{ steps.tf.outputs.instance_id }} \
+            --os-user ubuntu \
+            --ssh-public-key file://~/.ssh/deployhub.pub
+
+      - name: Configure SSH known hosts
+        run: |
           ssh-keyscan -H ${{ steps.tf.outputs.ec2_ip }} >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Prepare k8s manifests

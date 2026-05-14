@@ -265,8 +265,8 @@ jobs:
 
             kubectl apply -f /home/ubuntu/k8s_deploy/namespace.yaml
             kubectl apply -f /home/ubuntu/k8s_deploy/
-            kubectl rollout status deployment/backend  -n deployhub --timeout=180s
-            kubectl rollout status deployment/frontend -n deployhub --timeout=90s
+            kubectl rollout status deployment/backend  -n deployhub --timeout=300s
+            kubectl rollout status deployment/frontend -n deployhub --timeout=120s
           EOF
 
       - name: Smoke test

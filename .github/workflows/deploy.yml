@@ -244,11 +244,25 @@ jobs:
           done
 
       - name: Deploy to EC2
+        env:
+          ECR_REGISTRY: ${{ needs.build-and-push.outputs.ecr-registry }}
+          AWS_REGION: ${{ env.AWS_REGION }}
         run: |
           ssh -i ~/.ssh/deployhub ubuntu@${{ steps.tf.outputs.ec2_ip }} "mkdir -p /home/ubuntu/k8s_deploy"
           scp -i ~/.ssh/deployhub -r k8s_rendered/. ubuntu@${{ steps.tf.outputs.ec2_ip }}:/home/ubuntu/k8s_deploy/
-          ssh -i ~/.ssh/deployhub ubuntu@${{ steps.tf.outputs.ec2_ip }} << 'EOF'
+          ssh -i ~/.ssh/deployhub ubuntu@${{ steps.tf.outputs.ec2_ip }} << EOF
             set -e
+
+            # Create ECR image pull secret using the instance IAM role
+            ECR_PASSWORD=\$(aws ecr get-login-password --region $AWS_REGION)
+            kubectl create namespace deployhub --dry-run=client -o yaml | kubectl apply -f -
+            kubectl create secret docker-registry ecr-private-key \
+              --namespace deployhub \
+              --docker-server=$ECR_REGISTRY \
+              --docker-username=AWS \
+              --docker-password="\$ECR_PASSWORD" \
+              --dry-run=client -o yaml | kubectl apply -f -
+
             kubectl apply -f /home/ubuntu/k8s_deploy/namespace.yaml
             kubectl apply -f /home/ubuntu/k8s_deploy/
             kubectl rollout status deployment/backend  -n deployhub --timeout=180s

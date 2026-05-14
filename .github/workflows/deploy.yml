@@ -55,9 +55,9 @@ jobs:
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-          echo "account_id=${ACCOUNT_ID}"   >> $GITHUB_OUTPUT
-          echo "ecr_registry=${REGISTRY}"   >> $GITHUB_OUTPUT
-          echo "ECR_REGISTRY=${REGISTRY}"   >> $GITHUB_ENV
+          echo "account_id=${ACCOUNT_ID}" >> $GITHUB_OUTPUT
+          echo "ecr_registry=${REGISTRY}" >> $GITHUB_OUTPUT
+          echo "ECR_REGISTRY=${REGISTRY}" >> $GITHUB_ENV
 
       - name: Ensure ECR repositories exist
         run: |
@@ -146,7 +146,6 @@ jobs:
 
       - name: Bootstrap Terraform remote state
         run: |
-          # S3 bucket
           aws s3api create-bucket \
             --bucket deployhub-tfstate \
             --region $AWS_REGION 2>/dev/null || true
@@ -165,7 +164,7 @@ jobs:
             --public-access-block-configuration \
             "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
 
-          # DynamoDB lock table — create if not exists, then wait until ACTIVE
+          # Create DynamoDB lock table if it doesn't exist, then wait until ACTIVE
           aws dynamodb create-table \
             --table-name deployhub-tfstate-lock \
             --attribute-definitions AttributeName=LockID,AttributeType=S \
@@ -177,18 +176,31 @@ jobs:
             --table-name deployhub-tfstate-lock \
             --region $AWS_REGION
 
+      - name: Generate ephemeral SSH key pair
+        id: ssh
+        run: |
+          ssh-keygen -t ed25519 -f ~/.ssh/deployhub -N "" -C "deployhub-ci"
+          echo "public_key=$(cat ~/.ssh/deployhub.pub)" >> $GITHUB_OUTPUT
+
       - name: Provision k3s EC2 with Terraform
         id: tf
         working-directory: terraform/environments/k3s
         run: |
-          # Account-scoped state key — fresh state per AWS account, no cross-session pollution
+          # Account-scoped state key — each AWS account gets its own clean state
           terraform init -input=false \
             -backend-config="key=environments/k3s/${{ needs.build-and-push.outputs.account-id }}/terraform.tfstate"
 
-          terraform apply -auto-approve -input=false
+          # Inject the ephemeral public key so the runner can SSH in
+          terraform apply -auto-approve -input=false \
+            -var="public_key=${{ steps.ssh.outputs.public_key }}"
 
           echo "ec2_ip=$(terraform output -raw ec2_public_ip)"             >> $GITHUB_OUTPUT
           echo "apps_ecr=$(terraform output -raw ecr_apps_repository_url)" >> $GITHUB_OUTPUT
+
+      - name: Configure SSH
+        run: |
+          chmod 600 ~/.ssh/deployhub
+          ssh-keyscan -H ${{ steps.tf.outputs.ec2_ip }} >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Prepare k8s manifests
         env:
@@ -209,19 +221,12 @@ jobs:
           sed -i 's|\${BACKEND_SA_ROLE_ARN}||g' k8s_rendered/backend.yaml
           envsubst < k8s_deploy/secrets.yaml > k8s_rendered/secrets.yaml
 
-      - name: Set up SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/deployhub.pem
-          chmod 600 ~/.ssh/deployhub.pem
-          ssh-keyscan -H ${{ steps.tf.outputs.ec2_ip }} >> ~/.ssh/known_hosts 2>/dev/null
-
       - name: Wait for k3s to be ready on EC2
         run: |
           EC2_IP=${{ steps.tf.outputs.ec2_ip }}
           echo "Waiting for k3s to finish bootstrapping..."
           for i in $(seq 1 24); do
-            if ssh -i ~/.ssh/deployhub.pem -o StrictHostKeyChecking=no ubuntu@$EC2_IP \
+            if ssh -i ~/.ssh/deployhub -o StrictHostKeyChecking=no ubuntu@$EC2_IP \
               "kubectl get nodes 2>/dev/null | grep -q Ready"; then
               echo "✅ k3s is ready"
               break
@@ -232,8 +237,8 @@ jobs:
 
       - name: Deploy to EC2
         run: |
-          scp -i ~/.ssh/deployhub.pem -r k8s_rendered/ ubuntu@${{ steps.tf.outputs.ec2_ip }}:/home/ubuntu/k8s_deploy/
-          ssh -i ~/.ssh/deployhub.pem ubuntu@${{ steps.tf.outputs.ec2_ip }} << 'EOF'
+          scp -i ~/.ssh/deployhub -r k8s_rendered/ ubuntu@${{ steps.tf.outputs.ec2_ip }}:/home/ubuntu/k8s_deploy/
+          ssh -i ~/.ssh/deployhub ubuntu@${{ steps.tf.outputs.ec2_ip }} << 'EOF'
             set -e
             kubectl apply -f /home/ubuntu/k8s_deploy/namespace.yaml
             kubectl apply -f /home/ubuntu/k8s_deploy/

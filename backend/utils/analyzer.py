@@ -12,8 +12,10 @@ class DetectedService:
     entrypoint: Optional[str] = None
 
 class RepoAnalyzer:
-    def __init__(self, repo_path: str | Path):
+    def __init__(self, repo_path: str | Path, repo_name: str | None = None):
         self.repo_path = Path(repo_path)
+        # Use provided name, or fall back to the directory name
+        self._repo_name = repo_name or self.repo_path.name
 
     def analyze(self) -> List[DetectedService]:
         services = []
@@ -50,7 +52,8 @@ class RepoAnalyzer:
         return services
 
     def _analyze_node(self, full_path: str, rel_path: str) -> DetectedService:
-        name = os.path.basename(full_path) or "root-node"
+        # If at repo root, use repo name; otherwise use directory name
+        name = (self._repo_name if not rel_path else os.path.basename(full_path)) or "app"
         framework = None
         
         # Simple framework detection
@@ -72,7 +75,8 @@ class RepoAnalyzer:
         )
 
     def _analyze_python(self, full_path: str, rel_path: str) -> DetectedService:
-        name = os.path.basename(full_path) or "root-python"
+        # If at repo root, use repo name; otherwise use directory name
+        name = (self._repo_name if not rel_path else os.path.basename(full_path)) or "app"
         framework = None
         
         # Simple framework detection

@@ -149,11 +149,18 @@ async def analyze_repository(request: dict):
 
     try:
         normalized_url = normalize_repo_url(str(repo_url))
-        temp_id = "analysis-" + str(abs(hash(normalized_url)))[:8]
+        # Use a stable temp ID derived from the URL — never shown to users
+        repo_slug = normalized_url.rstrip("/").split("/")[-1].replace(".git", "")
+        temp_id = f"_analyze_{abs(hash(normalized_url)) % 100000}"
         repo_path = await clone_or_update_repo(temp_id, normalized_url)
 
-        analyzer = RepoAnalyzer(repo_path)
+        analyzer = RepoAnalyzer(repo_path, repo_name=repo_slug)
         services = analyzer.analyze()
+
+        # Override any service name that leaked the temp folder name
+        for svc in services:
+            if not svc.name or "_analyze_" in svc.name or svc.name == temp_id:
+                svc.name = repo_slug
 
         return {"services": [s.__dict__ for s in services]}
     except GitError as exc:

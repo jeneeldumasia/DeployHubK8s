@@ -196,16 +196,6 @@ jobs:
           echo "instance_id=$(terraform output -raw ec2_instance_id)"      >> $GITHUB_OUTPUT
           echo "apps_ecr=$(terraform output -raw ecr_apps_repository_url)" >> $GITHUB_OUTPUT
 
-      - name: Push ephemeral public key via EC2 Instance Connect
-        run: |
-          # EC2 Instance Connect pushes the public key to the instance for 60 seconds —
-          # no pre-provisioned key pair needed, works on any instance in any account
-          aws ec2-instance-connect send-ssh-public-key \
-            --region $AWS_REGION \
-            --instance-id ${{ steps.tf.outputs.instance_id }} \
-            --instance-os-user ubuntu \
-            --ssh-public-key file://~/.ssh/deployhub.pub
-
       - name: Configure SSH known hosts
         run: |
           ssh-keyscan -H ${{ steps.tf.outputs.ec2_ip }} >> ~/.ssh/known_hosts 2>/dev/null
@@ -232,8 +222,15 @@ jobs:
       - name: Wait for k3s to be ready on EC2
         run: |
           EC2_IP=${{ steps.tf.outputs.ec2_ip }}
+          INSTANCE_ID=${{ steps.tf.outputs.instance_id }}
           echo "Waiting for k3s to finish bootstrapping..."
           for i in $(seq 1 24); do
+            # Re-push key every iteration — each push resets the 60s window
+            aws ec2-instance-connect send-ssh-public-key \
+              --region $AWS_REGION \
+              --instance-id $INSTANCE_ID \
+              --instance-os-user ubuntu \
+              --ssh-public-key file://~/.ssh/deployhub.pub 2>/dev/null || true
             if ssh -i ~/.ssh/deployhub -o StrictHostKeyChecking=no ubuntu@$EC2_IP \
               "kubectl get nodes 2>/dev/null | grep -q Ready"; then
               echo "✅ k3s is ready"

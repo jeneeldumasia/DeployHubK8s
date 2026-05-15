@@ -1,6 +1,8 @@
 import asyncio
 import json
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Response, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +19,7 @@ from database import (
     get_database,
     get_project_by_id,
     get_project_by_normalized_repo_url,
+    get_project_by_url_and_path,
     list_projects,
     update_project,
     utc_now,
@@ -143,17 +146,20 @@ async def analyze_repository(request: dict):
     repo_url = request.get("repo_url")
     if not repo_url:
         raise HTTPException(status_code=400, detail="repo_url is required")
-    
+
     try:
-        temp_id = "analysis-" + str(hash(repo_url))[:8]
-        repo_path = await clone_or_update_repo(temp_id, repo_url)
-        
+        normalized_url = normalize_repo_url(str(repo_url))
+        temp_id = "analysis-" + str(abs(hash(normalized_url)))[:8]
+        repo_path = await clone_or_update_repo(temp_id, normalized_url)
+
         analyzer = RepoAnalyzer(repo_path)
         services = analyzer.analyze()
-        
+
         return {"services": [s.__dict__ for s in services]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except GitError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/api/projects", response_model=ProjectSummary, responses={400: {"model": ApiErrorResponse}})
@@ -169,6 +175,7 @@ async def create_project_endpoint(payload: ProjectCreate) -> ProjectSummary:
         return serialize_project_summary(existing)
 
     project_id = str(uuid.uuid4())[:8]
+    now = utc_now()
     document = {
         "id": project_id,
         "repo_url": str(payload.repo_url),

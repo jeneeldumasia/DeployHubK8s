@@ -17,7 +17,7 @@ spec:
         - name: ecr-private-key
       containers:
         - name: frontend
-          image: 654654525548.dkr.ecr.us-east-1.amazonaws.com/deployhub-frontend:latest
+          image: deployhub-frontend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 80

@@ -6,6 +6,7 @@ on:
     paths:
       - "backend/**"
       - "frontend/**"
+      - "terraform/**"
       - ".github/workflows/ci.yml"
 
 jobs:

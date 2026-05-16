@@ -147,7 +147,7 @@ class DeploymentWorker:
                 # Use ECR when ecr_registry is configured, otherwise use the
                 # local in-cluster registry (registry_addr).
                 registry_prefix = settings.ecr_registry.rstrip("/") if settings.ecr_registry else settings.registry_addr.rstrip("/")
-                registry_image = f"{registry_prefix}/{image_tag}"
+                registry_image = self.ecr_image_ref(project_id, registry_prefix)
                 await record_log(f"Building Docker image '{registry_image}' via BuildKit for Kubernetes")
 
                 from utils.buildkit import build_image as buildkit_build_image
@@ -326,6 +326,26 @@ class DeploymentWorker:
 
     def image_tag(self, project_id: str) -> str:
         return f"deployhub-{project_id}:latest".lower()
+
+    def ecr_image_ref(self, project_id: str, registry_prefix: str) -> str:
+        """
+        Build the fully-qualified ECR image reference.
+
+        Uses a FLAT repo layout:  <registry>/deployhub-apps:<project_id>
+        instead of a sub-repo:   <registry>/deployhub-apps/deployhub-<id>:latest
+
+        The flat layout means only the single 'deployhub-apps' ECR repository
+        is needed — it is pre-created by the CI pipeline and the node role
+        never needs ecr:CreateRepository permission.
+        """
+        # registry_prefix is e.g. 123456.dkr.ecr.us-east-1.amazonaws.com
+        # or registry:5000 for local
+        if ".dkr.ecr." in registry_prefix:
+            # ECR: flat repo, project_id as image tag
+            return f"{registry_prefix}/deployhub-apps:{project_id}".lower()
+        else:
+            # Local registry: keep original naming
+            return f"{registry_prefix}/{self.image_tag(project_id)}"
 
     def container_name(self, project_id: str) -> str:
         return f"deployhub-{project_id}".lower()

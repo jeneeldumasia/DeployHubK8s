@@ -13,35 +13,58 @@ from botocore.exceptions import ClientError
 from config import settings
 
 
-def _ensure_ecr_repository(image_tag: str, region: str) -> None:
+def _ensure_ecr_repository(image_tag: str, region: str) -> Optional[str]:
     """
-    Create the ECR repository for image_tag if it doesn't already exist.
-    ECR will 404 on push if the repo is missing — it never auto-creates.
+    Best-effort check that the ECR repository exists.
 
-    The repo name is everything between the registry host and the colon tag,
-    e.g. for  123.dkr.ecr.us-east-1.amazonaws.com/deployhub-apps/deployhub-abc:latest
-    the repo name is  deployhub-apps/deployhub-abc
+    With the flat repo layout (deployhub-apps:<project_id>) the repo is
+    pre-created by the CI pipeline, so this is mostly a safety net.
+
+    Returns None on success/skip, or a warning string if the check could not
+    be completed due to IAM restrictions. Never raises — a failure here must
+    not abort the build.
     """
-    # Strip registry host prefix and tag suffix
-    # image_tag format: <account>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>
     try:
-        repo_with_tag = image_tag.split(".amazonaws.com/", 1)[1]   # deployhub-apps/deployhub-abc:latest
-        repo_name = repo_with_tag.rsplit(":", 1)[0]                 # deployhub-apps/deployhub-abc
+        repo_with_tag = image_tag.split(".amazonaws.com/", 1)[1]
+        repo_name = repo_with_tag.rsplit(":", 1)[0]
     except (IndexError, ValueError):
-        return  # not an ECR image, nothing to do
+        return None  # not an ECR image
 
     ecr = boto3.client("ecr", region_name=region)
+
     try:
         ecr.describe_repositories(repositoryNames=[repo_name])
+        return None  # repo exists, all good
     except ClientError as exc:
-        if exc.response["Error"]["Code"] == "RepositoryNotFoundException":
-            ecr.create_repository(
-                repositoryName=repo_name,
-                imageTagMutability="MUTABLE",
-                imageScanningConfiguration={"scanOnPush": False},
+        code = exc.response["Error"]["Code"]
+
+        if code == "RepositoryNotFoundException":
+            # Repo doesn't exist — try to create it
+            try:
+                ecr.create_repository(
+                    repositoryName=repo_name,
+                    imageTagMutability="MUTABLE",
+                    imageScanningConfiguration={"scanOnPush": False},
+                )
+                return None  # created successfully
+            except ClientError as create_exc:
+                create_code = create_exc.response["Error"]["Code"]
+                if create_code in ("AccessDeniedException", "AccessDenied", "UnauthorizedOperation"):
+                    return (
+                        f"⚠️  ECR repo '{repo_name}' not found and cannot be auto-created "
+                        f"(IAM restriction: {create_code}). "
+                        f"Ensure the repo is pre-created by the CI pipeline before deploying."
+                    )
+                raise
+
+        elif code in ("AccessDeniedException", "AccessDenied", "UnauthorizedOperation"):
+            # Can't describe — proceed optimistically, repo likely exists
+            return (
+                f"⚠️  Cannot verify ECR repo '{repo_name}' (IAM restriction: {code}). "
+                f"Proceeding with push — will fail if repo does not exist."
             )
-        else:
-            raise
+
+        raise  # unexpected error
 
 
 def _build_image_sync(
@@ -84,7 +107,11 @@ def _build_image_sync(
             # ── Ensure the ECR repository exists before pushing ──────────────
             # ECR returns 404 on push if the repo doesn't exist; it never
             # auto-creates repos the way Docker Hub does.
-            _ensure_ecr_repository(image_tag, region)
+            # Returns a warning string if creation was skipped due to IAM limits.
+            repo_warning = _ensure_ecr_repository(image_tag, region)
+            if repo_warning:
+                # Print to stdout so it appears in build logs, but don't abort
+                print(repo_warning, flush=True)
 
             ecr = boto3.client("ecr", region_name=region)
             auth_data = ecr.get_authorization_token()["authorizationData"][0]

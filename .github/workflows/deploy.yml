@@ -228,6 +228,7 @@ jobs:
           REPLACE_ME_REGISTRY_ADDR: ${{ steps.tf.outputs.apps_ecr }}
           REPLACE_ME_PUBLIC_BASE_URL: "http://${{ steps.tf.outputs.ec2_ip }}:3081"
           BACKEND_SA_ROLE_ARN: ""
+          TUNNEL_ID: ${{ secrets.CLOUDFLARE_TUNNEL_ID }}
         run: |
           cp -r k8s_deploy/ k8s_rendered/
           sed -i "s|deployhub-backend:latest|$ECR_REGISTRY/$BACKEND_IMAGE:$IMAGE_TAG|g" k8s_rendered/backend.yaml
@@ -235,6 +236,10 @@ jobs:
           sed -i "s|http://3.95.33.38|http://$EC2_IP|g" k8s_rendered/backend.yaml
           sed -i 's|\${BACKEND_SA_ROLE_ARN}||g' k8s_rendered/backend.yaml
           envsubst < k8s_deploy/secrets.yaml > k8s_rendered/secrets.yaml
+          # Substitute TUNNEL_ID into cloudflared config (no-op if secret not set)
+          if [ -n "$TUNNEL_ID" ]; then
+            envsubst '${TUNNEL_ID}' < k8s_deploy/cloudflared.yaml > k8s_rendered/cloudflared.yaml
+          fi
 
       - name: Wait for k3s to be ready on EC2
         run: |
@@ -260,6 +265,8 @@ jobs:
       - name: Deploy to EC2
         env:
           ECR_REGISTRY: ${{ needs.build-and-push.outputs.ecr-registry }}
+          CF_TUNNEL_ID: ${{ secrets.CLOUDFLARE_TUNNEL_ID }}
+          CF_CREDENTIALS: ${{ secrets.CLOUDFLARE_TUNNEL_CREDENTIALS }}
         run: |
           EC2_IP=${{ steps.tf.outputs.ec2_ip }}
           INSTANCE_ID=${{ steps.tf.outputs.instance_id }}
@@ -279,6 +286,22 @@ jobs:
             --docker-username=AWS \
             --docker-password="\$ECR_PASSWORD" \
             --dry-run=client -o yaml | kubectl apply -f -
+
+          # Cloudflare Tunnel credentials secret
+          # Only created if CLOUDFLARE secrets are configured — skipped otherwise
+          if [ -n "$CF_TUNNEL_ID" ] && [ -n "$CF_CREDENTIALS" ]; then
+            kubectl create secret generic cloudflared-credentials \
+              --namespace deployhub \
+              --from-literal=tunnel-id="\$CF_TUNNEL_ID" \
+              --from-literal=credentials.json="\$CF_CREDENTIALS" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            echo "Cloudflare tunnel credentials applied"
+          else
+            echo "CLOUDFLARE_TUNNEL_ID / CLOUDFLARE_TUNNEL_CREDENTIALS not set — skipping tunnel"
+            # Remove cloudflared manifest so kubectl apply doesn't fail on missing secret
+            rm -f /home/ubuntu/k8s_deploy/cloudflared.yaml
+          fi
+
           kubectl apply -f /home/ubuntu/k8s_deploy/namespace.yaml
           kubectl apply -f /home/ubuntu/k8s_deploy/
           kubectl rollout status deployment/backend  -n deployhub --timeout=300s || {

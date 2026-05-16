@@ -1,0 +1,122 @@
+# ── Cloudflare Tunnel — cloudflared deployment ────────────────────────────────
+#
+# Runs cloudflared as a 2-replica deployment inside k3s.
+# It dials OUT to Cloudflare's edge — no inbound ports needed.
+# Credentials are mounted from a k8s secret (created by the deploy pipeline).
+#
+# DNS routes (created once via `cloudflared tunnel route dns`):
+#   deployhub.jeneeldumasia.codes  → frontend  :80
+#   api.jeneeldumasia.codes        → backend   :8000
+#   grafana.jeneeldumasia.codes    → grafana   :3000
+#   *.jeneeldumasia.codes          → deployed apps via NodePort
+#
+# Secret required (created by pipeline from CLOUDFLARE_TUNNEL_CREDENTIALS secret):
+#   kubectl create secret generic cloudflared-credentials \
+#     --from-literal=credentials.json='<contents of ~/.cloudflared/<id>.json>' \
+#     -n deployhub
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflared-config
+  namespace: deployhub
+data:
+  config.yaml: |
+    tunnel: ${TUNNEL_ID}
+    credentials-file: /etc/cloudflared/credentials.json
+    no-autoupdate: true
+    metrics: 0.0.0.0:2000
+
+    ingress:
+      # DeployHub frontend UI
+      - hostname: deployhub.jeneeldumasia.codes
+        service: http://frontend:80
+
+      # DeployHub backend API
+      - hostname: api.jeneeldumasia.codes
+        service: http://backend:8000
+
+      # Grafana monitoring
+      - hostname: grafana.jeneeldumasia.codes
+        service: http://grafana:3000
+
+      # Catch-all: wildcard subdomains for deployed apps
+      # The tunnel forwards *.jeneeldumasia.codes to the backend
+      # which resolves the project by hostname via ingress rules.
+      - hostname: "*.jeneeldumasia.codes"
+        service: http://backend:8000
+
+      # Required catch-all — returns 404 for unmatched routes
+      - service: http_status:404
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: deployhub
+  labels:
+    app: cloudflared
+spec:
+  replicas: 2   # two replicas for HA — Cloudflare load-balances across them
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2024.5.0
+          args:
+            - tunnel
+            - --config
+            - /etc/cloudflared/config.yaml
+            - run
+          env:
+            - name: TUNNEL_ID
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflared-credentials
+                  key: tunnel-id
+          ports:
+            - containerPort: 2000
+              name: metrics
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared/config.yaml
+              subPath: config.yaml
+            - name: credentials
+              mountPath: /etc/cloudflared/credentials.json
+              subPath: credentials.json
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: cloudflared-config
+        - name: credentials
+          secret:
+            secretName: cloudflared-credentials
+            items:
+              - key: credentials.json
+                path: credentials.json

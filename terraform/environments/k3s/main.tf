@@ -145,3 +145,12 @@ resource "aws_instance" "k3s" {
 
   tags = merge(local.tags, { Name = "${local.project}-k3s-node" })
 }
+
+# ── Elastic IP — keeps the same public IP across instance replacements ────────
+# This means DNS only needs to be pointed once. Without this, every new
+# lab session gets a different IP and the domain record breaks.
+resource "aws_eip" "k3s" {
+  instance = aws_instance.k3s.id
+  domain   = "vpc"
+  tags     = merge(local.tags, { Name = "${local.project}-eip" })
+}

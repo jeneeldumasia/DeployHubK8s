@@ -1,8 +1,8 @@
-# Environments
+# ── Secrets & environment ─────────────────────────────────────
 .env*
 !.env.example
 
-# Terraform
+# ── Terraform ─────────────────────────────────────────────────
 .terraform/
 *.tfstate
 *.tfstate.backup
@@ -10,26 +10,60 @@
 *.tfvars
 !*.tfvars.example
 
-# Python
+# ── Python ────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
+*.pyd
 venv/
 .venv/
-
-# Build artifacts
+.pytest_cache/
+*.egg-info/
 dist/
 build/
+
+# ── Node / Frontend ───────────────────────────────────────────
 node_modules/
+frontend/dist/
+frontend/build/
+.npm/
+.pnpm-store/
+
+# ── Build & runtime artifacts ─────────────────────────────────
 generated_dockerfiles/
 repos/
+k8s_rendered/          # CI-rendered manifests contain substituted secrets
 
-# OS files
+# ── Logs ──────────────────────────────────────────────────────
+logs/
+*.log
+
+# ── OS & editor ───────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
+.idea/
+*.iml
 
-# CI rendered manifests (contain substituted secrets — never commit)
-k8s_rendered/
+# ── VS Code (keep settings, ignore workspace state) ───────────
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 
-# GitHub Actions logs
-logs/
+# ── Kiro IDE ──────────────────────────────────────────────────
+.kiro/
+
+# ── Generated / one-off files ─────────────────────────────────
+PROJECT_DEEP_DIVE.pdf
+generate_pdf.py
+SESSION_SUMMARY.md
+transfer_image.ps1
+setup_registry.bat
+
+# ── Cloudflare tunnel (credentials must never be committed) ───
+.cloudflared/
+*.json
+!package.json
+!package-lock.json

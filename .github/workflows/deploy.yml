@@ -3,8 +3,23 @@ name: CI/CD — Build, Scan & Deploy
 on:
   push:
     branches: [main]
+    # Only run the pipeline when files that actually affect the deployed
+    # application change. Docs, scripts, terraform, and test files don't
+    # need a full build + deploy cycle.
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "k8s_deploy/**"
+      - "k8s/**"
+      - ".github/workflows/deploy.yml"
   pull_request:
     branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "k8s_deploy/**"
+      - "k8s/**"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
     inputs:
       environment:

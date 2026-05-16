@@ -623,6 +623,13 @@ button:disabled { opacity: 0.38; cursor: not-allowed; }
   gap: 1.5rem;
 }
 
+/* Each column must declare min-width:0 so the grid cell can shrink
+   below its content size — without this, long unbroken log lines
+   force the cell to overflow and push the runtime column off-screen */
+.log-columns > div {
+  min-width: 0;
+}
+
 .log-columns h3 {
   font-size: 0.72rem;
   font-weight: 800;
@@ -639,10 +646,13 @@ pre {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.78rem;
   line-height: 1.75;
-  overflow-x: auto;
+  overflow-x: auto;   /* scroll horizontally rather than expanding the column */
   max-height: 480px;
   overflow-y: auto;
   border: 1px solid rgba(255,255,255,0.06);
+  /* ensure pre never blows out its grid cell */
+  min-width: 0;
+  width: 100%;
 }
 
 [data-theme='light'] pre {

@@ -331,20 +331,22 @@ class DeploymentWorker:
         """
         Build the fully-qualified ECR image reference.
 
-        Uses a FLAT repo layout:  <registry>/deployhub-apps:<project_id>
-        instead of a sub-repo:   <registry>/deployhub-apps/deployhub-<id>:latest
+        Uses a FLAT repo layout:  <account>.dkr.ecr.<region>.amazonaws.com/deployhub-apps:<project_id>
 
-        The flat layout means only the single 'deployhub-apps' ECR repository
-        is needed — it is pre-created by the CI pipeline and the node role
-        never needs ecr:CreateRepository permission.
+        registry_prefix may arrive as either:
+          - bare registry:   767397755297.dkr.ecr.us-east-1.amazonaws.com
+          - with repo path:  767397755297.dkr.ecr.us-east-1.amazonaws.com/deployhub-apps
+          - or local:        registry:5000
+
+        We always normalise to the bare registry host so we can append
+        /deployhub-apps:<project_id> exactly once.
         """
-        # registry_prefix is e.g. 123456.dkr.ecr.us-east-1.amazonaws.com
-        # or registry:5000 for local
         if ".dkr.ecr." in registry_prefix:
-            # ECR: flat repo, project_id as image tag
-            return f"{registry_prefix}/deployhub-apps:{project_id}".lower()
+            # Strip everything after the amazonaws.com host (any /repo/path suffix)
+            host = registry_prefix.split(".amazonaws.com")[0] + ".amazonaws.com"
+            return f"{host}/deployhub-apps:{project_id}".lower()
         else:
-            # Local registry: keep original naming
+            # Local registry — keep original naming
             return f"{registry_prefix}/{self.image_tag(project_id)}"
 
     def container_name(self, project_id: str) -> str:

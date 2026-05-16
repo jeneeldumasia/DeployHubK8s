@@ -61,6 +61,40 @@ resource "aws_iam_role_policy_attachment" "k3s_ecr" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser"
 }
 
+# AmazonEC2ContainerRegistryPowerUser covers push/pull but explicitly excludes
+# CreateRepository and DeleteRepository. DeployHub auto-creates a per-project
+# ECR repo on first deploy, so we need those two actions as an inline policy.
+resource "aws_iam_role_policy" "k3s_ecr_manage_repos" {
+  name = "${local.project}-ecr-manage-repos"
+  role = aws_iam_role.k3s_node.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowECRCreateRepo"
+        Effect = "Allow"
+        Action = [
+          "ecr:CreateRepository",
+          "ecr:DescribeRepositories"
+        ]
+        # CreateRepository targets a repo that doesn't exist yet, so Resource must be *
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowECRManageExistingRepos"
+        Effect = "Allow"
+        Action = [
+          "ecr:DeleteRepository",
+          "ecr:ListTagsForResource",
+          "ecr:TagResource"
+        ]
+        Resource = "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/*"
+      }
+    ]
+  })
+}
+
 resource "aws_iam_instance_profile" "k3s" {
   name = "${local.project}-k3s-profile"
   role = aws_iam_role.k3s_node.name

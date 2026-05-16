@@ -28,22 +28,22 @@
 
 /* ─── Dark Theme — Slate & Cyan ──────────────────────────────── */
 [data-theme='dark'] {
-  --bg-deep:          #0d1117;   /* GitHub-dark-ish deep navy */
-  --bg-panel:         #161b22;   /* panel surface             */
-  --bg-card:          #1c2230;   /* card / input surface      */
-  --bg-elevated:      #21293a;   /* hover / elevated surface  */
-  --accent-primary:   #38bdf8;   /* sky-400 cyan              */
-  --accent-secondary: #7dd3fc;   /* sky-300                   */
-  --accent-glow:      rgba(56, 189, 248, 0.12);
+  --bg-deep:          #0d1117;
+  --bg-panel:         #161b22;
+  --bg-card:          #1c2230;
+  --bg-elevated:      #21293a;
+  --accent-primary:   #38bdf8;
+  --accent-secondary: #7dd3fc;
+  --accent-glow:      rgba(56, 189, 248, 0.14);
   --accent-ring:      rgba(56, 189, 248, 0.35);
-  --text-primary:     #e6edf3;   /* near-white                */
-  --text-secondary:   #8b949e;   /* muted grey                */
-  --text-muted:       #484f58;   /* very muted                */
+  --text-primary:     #e6edf3;
+  --text-secondary:   #8b949e;
+  --text-muted:       #4d5566;
   --border:           rgba(255, 255, 255, 0.07);
-  --border-strong:    rgba(255, 255, 255, 0.14);
-  --shadow-sm:        0 1px 4px rgba(0,0,0,0.30);
-  --shadow-md:        0 4px 20px rgba(0,0,0,0.40);
-  --shadow-lg:        0 12px 40px rgba(0,0,0,0.55);
+  --border-strong:    rgba(255, 255, 255, 0.13);
+  --shadow-sm:        0 1px 4px rgba(0,0,0,0.35);
+  --shadow-md:        0 4px 20px rgba(0,0,0,0.45);
+  --shadow-lg:        0 12px 40px rgba(0,0,0,0.60);
   --status-running:   #3fb950;
   --status-building:  #d29922;
   --status-failed:    #f85149;
@@ -61,21 +61,17 @@ body {
 }
 
 /* ─── App Shell ──────────────────────────────────────────────── */
-.app-shell {
-  min-height: 100vh;
-}
+.app-shell { min-height: 100vh; }
 
-/* ─── Page Content (full width — no sidebar offset) ─────────── */
+/* ─── Page Content ───────────────────────────────────────────── */
 .page-content {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 2.5rem 2.5rem 6rem; /* bottom pad clears the radial trigger */
+  padding: 2.5rem 2.5rem 6rem;
 }
 
 /* ─── Page Header ────────────────────────────────────────────── */
-.page-header {
-  margin-bottom: 2rem;
-}
+.page-header { margin-bottom: 2rem; }
 
 .page-header h1 {
   font-size: 2rem;
@@ -99,18 +95,21 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
-/* ─── Radial Navigation ──────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   RADIAL NAVIGATION
+   All radial-* rules are isolated so the global button rules
+   never interfere with positioning.
+═══════════════════════════════════════════════════════════════ */
 .radial-nav {
   position: fixed;
   bottom: 2rem;
   left: 2rem;
   z-index: 500;
-  /* sizing context for absolute children */
   width: 56px;
   height: 56px;
 }
 
-/* Trigger button */
+/* ── Trigger ── */
 .radial-trigger {
   position: absolute;
   bottom: 0;
@@ -119,36 +118,43 @@ body {
   height: 56px;
   border-radius: 50%;
   background: var(--accent-primary);
+  /* light: white text on espresso; dark: dark text on cyan */
   color: #fff;
   border: none;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 20px var(--accent-glow), 0 2px 8px rgba(0,0,0,0.25);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  z-index: 2;
   padding: 0;
+  z-index: 2;
+  box-shadow: 0 4px 20px var(--accent-glow), 0 2px 8px rgba(0,0,0,0.25);
+  /* own transition — NOT inheriting global button hover transform */
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  /* cancel global button hover side-effects */
+  transform: none;
+  opacity: 1;
 }
 
 [data-theme='dark'] .radial-trigger { color: #0d1117; }
 
-.radial-trigger:hover {
-  transform: scale(1.08);
-  box-shadow: 0 6px 28px var(--accent-ring), 0 2px 8px rgba(0,0,0,0.3);
+/* Override global button:hover for trigger specifically */
+.radial-trigger:hover:not(:disabled) {
+  transform: scale(1.08) !important;
+  opacity: 1 !important;
+  box-shadow: 0 6px 28px var(--accent-ring), 0 2px 8px rgba(0,0,0,0.3) !important;
 }
 
-.radial-trigger.open {
-  transform: scale(1.05) rotate(45deg);
+.radial-trigger.open:not(:disabled) {
+  transform: scale(1.05) rotate(45deg) !important;
 }
 
 .radial-trigger-icon {
   font-size: 1.4rem;
   line-height: 1;
-  transition: transform 0.2s;
+  pointer-events: none;
 }
 
-/* Visually hidden label for screen readers */
+/* SR-only label */
 .radial-trigger-label {
   position: absolute;
   width: 1px; height: 1px;
@@ -157,91 +163,113 @@ body {
   white-space: nowrap;
 }
 
-/* Theme toggle — floats just above the trigger */
+/* ── Theme toggle ── */
 .radial-theme-toggle {
   position: absolute;
   bottom: 64px;
-  left: 0;
+  left: 8px;
   width: 40px;
   height: 40px;
   border-radius: 50%;
   background: var(--bg-panel);
   border: 1px solid var(--border-strong);
+  /* explicit colors — not affected by dark button rule */
   color: var(--text-secondary);
   font-size: 1rem;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
   box-shadow: var(--shadow-sm);
   transition: background 0.15s, color 0.15s, transform 0.15s;
-  padding: 0;
 }
 
-.radial-theme-toggle:hover {
-  background: var(--bg-elevated);
-  color: var(--accent-primary);
-  transform: scale(1.1);
+.radial-theme-toggle:hover:not(:disabled) {
+  background: var(--bg-elevated) !important;
+  color: var(--accent-primary) !important;
+  transform: scale(1.1) !important;
+  opacity: 1 !important;
+  box-shadow: var(--shadow-sm) !important;
 }
 
-/* Radial items */
+/* ── Fan items ── */
 .radial-item {
   position: absolute;
-  bottom: 0;
-  left: 0;
+  bottom: 4px;   /* centre-align with trigger (56px trigger, 48px item → 4px offset) */
+  left: 4px;
   width: 48px;
   height: 48px;
   border-radius: 50%;
   background: var(--bg-panel);
   border: 1.5px solid var(--border-strong);
-  color: var(--text-secondary);
+  color: var(--text-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  overflow: visible;   /* let tooltip escape */
   box-shadow: var(--shadow-md);
-  /* start collapsed on the trigger */
-  transform: translate(0px, 0px) scale(0.4);
+
+  /* collapsed state */
+  transform: translate(0px, 0px) scale(0.5);
   opacity: 0;
   pointer-events: none;
+
+  /* spring animation — only transform & opacity, nothing else */
   transition:
-    transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
     opacity   0.22s ease,
     background 0.15s,
     border-color 0.15s,
     box-shadow 0.15s;
-  padding: 0;
 }
 
+/* expanded state */
 .radial-item.visible {
   transform: translate(var(--tx), var(--ty)) scale(1);
   opacity: 1;
   pointer-events: auto;
 }
 
-.radial-item:hover {
-  background: var(--bg-elevated);
-  border-color: var(--accent-primary);
-  color: var(--accent-primary);
-  box-shadow: 0 0 0 4px var(--accent-glow), var(--shadow-md);
-  transform: translate(var(--tx), var(--ty)) scale(1.12);
+/* hover — keep the translate, only scale up slightly */
+.radial-item:hover:not(:disabled) {
+  background: var(--bg-elevated) !important;
+  border-color: var(--accent-primary) !important;
+  color: var(--accent-primary) !important;
+  box-shadow: 0 0 0 5px var(--accent-glow), var(--shadow-md) !important;
+  /* CRITICAL: preserve --tx/--ty, only change scale */
+  transform: translate(var(--tx), var(--ty)) scale(1.14) !important;
+  opacity: 1 !important;
 }
 
+/* active page */
 .radial-item.active {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
-  color: #fff;
-  box-shadow: 0 0 0 4px var(--accent-glow), var(--shadow-md);
+  background: var(--accent-primary) !important;
+  border-color: var(--accent-primary) !important;
+  color: #fff !important;
+  box-shadow: 0 0 0 4px var(--accent-glow), var(--shadow-md) !important;
 }
 
-[data-theme='dark'] .radial-item.active { color: #0d1117; }
+[data-theme='dark'] .radial-item.active { color: #0d1117 !important; }
+
+/* active + hover */
+.radial-item.active:hover:not(:disabled) {
+  transform: translate(var(--tx), var(--ty)) scale(1.14) !important;
+  opacity: 1 !important;
+}
 
 .radial-item-icon {
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   line-height: 1;
+  pointer-events: none;
+  /* prevent icon from affecting button size */
+  display: block;
+  flex-shrink: 0;
 }
 
-/* Tooltip label */
+/* Tooltip — absolutely positioned, won't affect button layout */
 .radial-item-label {
   position: absolute;
   left: calc(100% + 10px);
@@ -259,11 +287,60 @@ body {
   opacity: 0;
   transition: opacity 0.12s;
   box-shadow: var(--shadow-sm);
+  /* ensure it renders above siblings */
+  z-index: 10;
 }
 
-.radial-item:hover .radial-item-label {
-  opacity: 1;
+.radial-item:hover .radial-item-label { opacity: 1; }
+
+/* ═══════════════════════════════════════════════════════════════
+   GLOBAL BUTTONS  (non-radial)
+═══════════════════════════════════════════════════════════════ */
+button {
+  background: var(--accent-primary);
+  color: #fff;
+  border: none;
+  border-radius: 9px;
+  padding: 0.6rem 1.3rem;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  font-family: inherit;
+  transition: opacity 0.15s, transform 0.12s, box-shadow 0.15s;
 }
+
+button:hover:not(:disabled) {
+  opacity: 0.88;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px var(--accent-glow);
+}
+
+button:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
+button:disabled { opacity: 0.38; cursor: not-allowed; }
+
+/* Dark mode: only the primary accent button needs dark text (cyan bg) */
+[data-theme='dark'] button:not(.secondary-button):not(.danger-button):not(.radial-trigger):not(.radial-theme-toggle):not(.radial-item) {
+  color: #0d1117;
+}
+
+.secondary-button {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  box-shadow: none;
+}
+
+.secondary-button:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  transform: translateY(-1px);
+  box-shadow: none;
+}
+
+/* Ensure secondary always has readable text in both themes */
+[data-theme='dark'] .secondary-button { color: var(--text-primary) !important; }
+
+.danger-button { background: #c0181e; color: #fff !important; }
+.danger-button:hover:not(:disabled) { background: #a01016; }
 
 /* ─── Dashboard ──────────────────────────────────────────────── */
 .dashboard-grid {
@@ -339,48 +416,6 @@ body {
 
 .repo-form input::placeholder { color: var(--text-muted); }
 
-/* ─── Buttons ────────────────────────────────────────────────── */
-button {
-  background: var(--accent-primary);
-  color: #fff;
-  border: none;
-  border-radius: 9px;
-  padding: 0.6rem 1.3rem;
-  font-weight: 700;
-  font-size: 0.85rem;
-  cursor: pointer;
-  font-family: inherit;
-  transition: opacity 0.15s, transform 0.12s, box-shadow 0.15s;
-}
-
-button:hover:not(:disabled) {
-  opacity: 0.9;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px var(--accent-glow);
-}
-
-button:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
-button:disabled { opacity: 0.38; cursor: not-allowed; }
-
-[data-theme='dark'] button { color: #0d1117; }
-
-.secondary-button {
-  background: var(--bg-card);
-  color: var(--text-primary);
-  border: 1px solid var(--border-strong);
-  box-shadow: none;
-}
-
-.secondary-button:hover:not(:disabled) {
-  background: var(--bg-elevated);
-  box-shadow: none;
-}
-
-[data-theme='dark'] .secondary-button { color: var(--text-primary); }
-
-.danger-button { background: #c0181e; color: #fff; }
-[data-theme='dark'] .danger-button { color: #fff; }
-
 /* ─── Projects ───────────────────────────────────────────────── */
 .projects-layout {
   display: grid;
@@ -413,6 +448,9 @@ button:disabled { opacity: 0.38; cursor: not-allowed; }
 .project-card:hover {
   background: var(--bg-elevated);
   border-color: var(--border-strong);
+  transform: none; /* cancel global button hover lift */
+  box-shadow: none;
+  opacity: 1;
 }
 
 .project-card.selected {

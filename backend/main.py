@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -54,6 +55,31 @@ worker = DeploymentWorker(
     generated_dockerfile_root=settings.generated_dockerfile_root,
     deployment_mode=settings.deployment_mode,
 )
+
+# ── Simple TTL cache for expensive endpoints ──────────────────────────────────
+# /api/system and /metrics both call the k8s API (pod list, availability check,
+# restart counts). Under load these calls take 2-3s each and queue up.
+# Cache results for 5s — fresh enough for monitoring, cheap under stress.
+
+class _TTLCache:
+    def __init__(self, ttl: float = 5.0):
+        self._ttl   = ttl
+        self._cache: dict = {}
+        self._lock  = asyncio.Lock()
+
+    async def get_or_set(self, key: str, coro_factory):
+        """Return cached value if fresh, otherwise await coro_factory() and cache it."""
+        async with self._lock:
+            entry = self._cache.get(key)
+            if entry and (time.monotonic() - entry["ts"]) < self._ttl:
+                return entry["value"]
+        # Compute outside the lock so other keys aren't blocked
+        value = await coro_factory()
+        async with self._lock:
+            self._cache[key] = {"value": value, "ts": time.monotonic()}
+        return value
+
+_cache = _TTLCache(ttl=5.0)
 
 
 @asynccontextmanager
@@ -357,45 +383,64 @@ async def stream_logs_endpoint(project_id: str) -> StreamingResponse:
 
 @app.get("/api/system", response_model=SystemResponse)
 async def get_system_endpoint() -> SystemResponse:
-    mongodb_available = True
-    try:
-        await get_database().command("ping")
-    except Exception:
-        mongodb_available = False
+    # All k8s/docker calls are cached for 5s to prevent thundering herd under load.
+    async def _fetch():
+        mongodb_available = True
+        try:
+            await get_database().command("ping")
+        except Exception:
+            mongodb_available = False
 
-    if settings.deployment_mode == "k8s":
-        running_container_count = await count_running_deployhub_pods()
-        env_available = await check_k8s_available()
-    else:
-        running_container_count = await count_running_deployhub_containers()
-        env_available = await check_docker_available()
+        if settings.deployment_mode == "k8s":
+            running_container_count, env_available = await asyncio.gather(
+                count_running_deployhub_pods(),
+                check_k8s_available(),
+            )
+        else:
+            running_container_count, env_available = await asyncio.gather(
+                count_running_deployhub_containers(),
+                check_docker_available(),
+            )
 
-    deployhub_active_containers.set(running_container_count)
-    deployhub_projects_total.set(await count_projects())
-    return SystemResponse(
-        backend_version=settings.backend_version,
-        docker_available=env_available,
-        mongodb_available=mongodb_available,
-        project_count=await count_projects(),
-        running_container_count=running_container_count,
-        active_deployments=worker.active_count(),
-        queued_deployments=await count_projects_by_status("queued"),
-    )
+        project_count   = await count_projects()
+        queued_count    = await count_projects_by_status("queued")
+        deployhub_active_containers.set(running_container_count)
+        deployhub_projects_total.set(project_count)
+        return {
+            "backend_version":        settings.backend_version,
+            "docker_available":       env_available,
+            "mongodb_available":      mongodb_available,
+            "project_count":          project_count,
+            "running_container_count": running_container_count,
+            "active_deployments":     worker.active_count(),
+            "queued_deployments":     queued_count,
+        }
+
+    data = await _cache.get_or_set("system", _fetch)
+    # active_deployments is in-memory and always fresh — override from cache
+    return SystemResponse(**{**data, "active_deployments": worker.active_count()})
 
 
 @app.get("/metrics")
 async def metrics_endpoint() -> Response:
-    deployhub_projects_total.set(await count_projects())
-    if settings.deployment_mode == "k8s":
-        deployhub_active_containers.set(await count_running_deployhub_pods())
-        # Refresh per-pod restart counts
-        restart_counts = await get_all_pod_restart_counts()
-        for pod_name, count in restart_counts.items():
-            deployhub_pod_restarts_total.labels(pod_name=pod_name).set(count)
-    else:
-        deployhub_active_containers.set(await count_running_deployhub_containers())
-    metrics_payload, content_type = await metrics_response()
-    return Response(content=metrics_payload, media_type=content_type)
+    async def _fetch():
+        project_count = await count_projects()
+        deployhub_projects_total.set(project_count)
+        if settings.deployment_mode == "k8s":
+            pod_count, restart_counts = await asyncio.gather(
+                count_running_deployhub_pods(),
+                get_all_pod_restart_counts(),
+            )
+            deployhub_active_containers.set(pod_count)
+            for pod_name, count in restart_counts.items():
+                deployhub_pod_restarts_total.labels(pod_name=pod_name).set(count)
+        else:
+            deployhub_active_containers.set(await count_running_deployhub_containers())
+        payload, content_type = await metrics_response()
+        return payload, content_type
+
+    payload, content_type = await _cache.get_or_set("metrics", _fetch)
+    return Response(content=payload, media_type=content_type)
 
 
 @app.get("/api/projects/{project_id}/health")

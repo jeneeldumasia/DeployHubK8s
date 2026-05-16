@@ -82,7 +82,22 @@ export default function ProjectsPage({
                 <div><span>Context Path</span><strong>{projectForActions.context_path || "/"}</strong></div>
                 <div><span>Repo URL</span><strong>{projectForActions.repo_url}</strong></div>
                 <div><span>Project Type</span><strong>{projectForActions.project_type}</strong></div>
-                <div><span>Service URL</span><strong>{projectForActions.service_url || "Not deployed yet"}</strong></div>
+                <div><span>Service URL</span>
+                  {projectForActions.service_url && projectForActions.service_url !== "Not deployed yet" ? (
+                    <strong>
+                      <a
+                        href={projectForActions.service_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: "var(--accent-primary)", textDecoration: "underline", fontFamily: "'JetBrains Mono', monospace", fontSize: "0.82rem", wordBreak: "break-all" }}
+                      >
+                        {projectForActions.service_url}
+                      </a>
+                    </strong>
+                  ) : (
+                    <strong>Not deployed yet</strong>
+                  )}
+                </div>
                 <div><span>Assigned Port</span><strong>{projectForActions.assigned_port || "N/A"}</strong></div>
                 <div><span>Container ID</span><strong>{projectForActions.container_id || "N/A"}</strong></div>
                 <div><span>Image Tag</span><strong>{projectForActions.image_tag || "N/A"}</strong></div>
@@ -161,6 +176,27 @@ export default function ProjectsPage({
                 >
                   Refresh Logs
                 </button>
+                {projectForActions.service_url && projectForActions.status === "running" && (
+                  <a
+                    href={projectForActions.service_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.3rem",
+                      background: "var(--status-running)",
+                      color: "#fff",
+                      borderRadius: 9,
+                      padding: "0.6rem 1.3rem",
+                      fontWeight: 700,
+                      fontSize: "0.85rem",
+                      textDecoration: "none",
+                    }}
+                  >
+                    Open App ↗
+                  </a>
+                )}
               </div>
             </>
           ) : (

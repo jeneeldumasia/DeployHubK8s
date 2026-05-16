@@ -192,20 +192,23 @@ class DeploymentWorker:
                     raise RuntimeError(f"K8s pod creation failed: {pod_result.get('error')}")
 
                 container_id = container_name
-                
-                # Create Ingress for subdomain
+
+                # Always use the NodePort URL as the primary service URL —
+                # it works immediately regardless of DNS/domain configuration.
+                # The ingress/subdomain is created as a bonus for when the
+                # domain is eventually pointed at the cluster, but we never
+                # rely on it being resolvable right now.
+                base_host = settings.public_base_url.replace("http://", "").replace("https://", "").split(":")[0]
+                service_url = f"http://{base_host}:{assigned_port}"
+
+                # Create Ingress for subdomain (best-effort — don't fail deploy if it errors)
                 slug = self._get_slug(project["repo_url"])
                 host = f"{slug}.{settings.base_domain}"
-                await record_log(f"Configuring subdomain: http://{host}")
-                
                 ingress_result = await create_ingress(name=container_name, host=host, service_port=container_port)
                 if ingress_result["status"] == "error":
-                    await record_log(f"⚠️ Ingress creation failed: {ingress_result.get('error')}")
-                    # Fallback to NodePort URL if ingress fails
-                    base_host = settings.public_base_url.replace("http://", "").replace("https://", "").split(":")[0]
-                    service_url = f"http://{base_host}:{assigned_port}"
+                    await record_log(f"⚠️ Ingress creation failed (non-fatal): {ingress_result.get('error')}")
                 else:
-                    service_url = f"http://{host}"
+                    await record_log(f"Ingress configured for http://{host} (requires DNS to be set up)")
 
                 # ── Post-deployment health check ──────────────────────────────
                 try:

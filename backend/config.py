@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     registry_addr: str = "registry:5000"
     # Set to true only for local insecure registries; ECR and DockerHub are always secure
     registry_insecure: bool = False
+    # Optional: set to an ECR registry URL (e.g. 123456789.dkr.ecr.us-east-1.amazonaws.com)
+    # when deploying to AWS. If empty, falls back to registry_addr (local in-cluster registry).
+    ecr_registry: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

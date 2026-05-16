@@ -26,8 +26,7 @@ from utils.docker import (
 )
 from utils.git import GitError, clone_or_update_repo
 
-# Import K8s/BuildKit utilities
-from utils.buildkit import build_image as buildkit_build_image
+# Import K8s utilities
 from utils.k8s import (
     create_pod,
     delete_pod,
@@ -145,15 +144,18 @@ class DeploymentWorker:
 
             image_tag = self.image_tag(project_id)
             if self.deployment_mode == "k8s":
-                registry_image = f"{settings.ecr_registry}/{image_tag}"
+                # Use ECR when ecr_registry is configured, otherwise use the
+                # local in-cluster registry (registry_addr).
+                registry_prefix = settings.ecr_registry.rstrip("/") if settings.ecr_registry else settings.registry_addr.rstrip("/")
+                registry_image = f"{registry_prefix}/{image_tag}"
                 await record_log(f"Building Docker image '{registry_image}' via BuildKit for Kubernetes")
-                
+
                 from utils.buildkit import build_image as buildkit_build_image
                 build_result = await buildkit_build_image(
                     image_tag=registry_image,
                     dockerfile_path=str(dockerfile_path),
                     context_path=str(build_context),
-                    on_line=record_log
+                    on_line=record_log,
                 )
                 if build_result["logs"]:
                     for line in build_result["logs"].splitlines():

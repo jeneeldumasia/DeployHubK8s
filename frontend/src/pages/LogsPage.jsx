@@ -1,6 +1,31 @@
-export default function LogsPage({ projects, selectedProjectId, setSelectedProjectId, logs, streamState, onRefreshLogs }) {
-  const selectedProject = projects.find((p) => p.id === selectedProjectId);
+import { useState } from "react";
 
+function CopyButton({ lines, label }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    const text = lines?.join("\n") || "";
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <button
+      type="button"
+      className="secondary-button"
+      style={{ fontSize: "0.72rem", padding: "0.3rem 0.75rem" }}
+      onClick={handleCopy}
+      title={`Copy ${label}`}
+    >
+      {copied ? "✓ Copied" : "Copy"}
+    </button>
+  );
+}
+
+export default function LogsPage({ projects, selectedProjectId, setSelectedProjectId, logs, streamState, onRefreshLogs }) {
   return (
     <div>
       <div className="page-header">
@@ -14,7 +39,14 @@ export default function LogsPage({ projects, selectedProjectId, setSelectedProje
           <div style={{ flex: 1, minWidth: 200 }}>
             <label
               htmlFor="log-project-select"
-              style={{ fontSize: "0.72rem", fontWeight: 800, textTransform: "uppercase", color: "var(--text-muted)", display: "block", marginBottom: "0.4rem" }}
+              style={{
+                fontSize: "0.72rem",
+                fontWeight: 800,
+                textTransform: "uppercase",
+                color: "var(--text-muted)",
+                display: "block",
+                marginBottom: "0.4rem",
+              }}
             >
               Project
             </label>
@@ -67,11 +99,17 @@ export default function LogsPage({ projects, selectedProjectId, setSelectedProje
         <div className="panel">
           <div className="log-columns">
             <div>
-              <h3>Build Logs</h3>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                <h3 style={{ margin: 0 }}>Build Logs</h3>
+                <CopyButton lines={logs.build_logs} label="build logs" />
+              </div>
               <pre>{logs.build_logs?.join("\n") || "No build logs yet."}</pre>
             </div>
             <div>
-              <h3>Runtime Logs</h3>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                <h3 style={{ margin: 0 }}>Runtime Logs</h3>
+                <CopyButton lines={logs.runtime_logs} label="runtime logs" />
+              </div>
               <pre>{logs.runtime_logs?.join("\n") || "No runtime logs yet."}</pre>
             </div>
           </div>

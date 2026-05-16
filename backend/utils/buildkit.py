@@ -5,12 +5,43 @@ import os
 import shutil
 import subprocess
 import tempfile
-import uuid
 from functools import partial
 from typing import Callable, Coroutine, Dict, Optional
 
 import boto3
+from botocore.exceptions import ClientError
 from config import settings
+
+
+def _ensure_ecr_repository(image_tag: str, region: str) -> None:
+    """
+    Create the ECR repository for image_tag if it doesn't already exist.
+    ECR will 404 on push if the repo is missing — it never auto-creates.
+
+    The repo name is everything between the registry host and the colon tag,
+    e.g. for  123.dkr.ecr.us-east-1.amazonaws.com/deployhub-apps/deployhub-abc:latest
+    the repo name is  deployhub-apps/deployhub-abc
+    """
+    # Strip registry host prefix and tag suffix
+    # image_tag format: <account>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>
+    try:
+        repo_with_tag = image_tag.split(".amazonaws.com/", 1)[1]   # deployhub-apps/deployhub-abc:latest
+        repo_name = repo_with_tag.rsplit(":", 1)[0]                 # deployhub-apps/deployhub-abc
+    except (IndexError, ValueError):
+        return  # not an ECR image, nothing to do
+
+    ecr = boto3.client("ecr", region_name=region)
+    try:
+        ecr.describe_repositories(repositoryNames=[repo_name])
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] == "RepositoryNotFoundException":
+            ecr.create_repository(
+                repositoryName=repo_name,
+                imageTagMutability="MUTABLE",
+                imageScanningConfiguration={"scanOnPush": False},
+            )
+        else:
+            raise
 
 
 def _build_image_sync(
@@ -49,6 +80,12 @@ def _build_image_sync(
         try:
             parts = image_tag.split(".")
             region = parts[3] if len(parts) > 3 else settings.aws_region
+
+            # ── Ensure the ECR repository exists before pushing ──────────────
+            # ECR returns 404 on push if the repo doesn't exist; it never
+            # auto-creates repos the way Docker Hub does.
+            _ensure_ecr_repository(image_tag, region)
+
             ecr = boto3.client("ecr", region_name=region)
             auth_data = ecr.get_authorization_token()["authorizationData"][0]
             token = base64.b64decode(auth_data["authorizationToken"]).decode()

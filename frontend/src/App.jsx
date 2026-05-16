@@ -3,6 +3,7 @@ import DashboardPage from "./pages/DashboardPage";
 import ProjectsPage  from "./pages/ProjectsPage";
 import LogsPage      from "./pages/LogsPage";
 import SettingsPage  from "./pages/SettingsPage";
+import RadialNav     from "./RadialNav";
 
 const apiBase = "/api";
 const destructiveActions = new Set(["stop", "delete"]);
@@ -13,12 +14,7 @@ async function parseResponse(response) {
   return body;
 }
 
-/* ── Nav items ─────────────────────────────────────────────── */
-const NAV = [
-  { id: "dashboard", label: "Dashboard", icon: "⬡" },
-  { id: "projects",  label: "Projects",  icon: "◫" },
-  { id: "logs",      label: "Logs",      icon: "≡" },
-];
+/* ── Nav items — now handled by RadialNav ──────────────────── */
 
 export default function App() {
   /* ── State ─────────────────────────────────────────────────── */
@@ -193,49 +189,12 @@ export default function App() {
   /* ── Render ────────────────────────────────────────────────── */
   return (
     <div className="app-shell">
-      {/* ── Sidebar ── */}
-      <nav className="sidebar" aria-label="Main navigation">
-        <span className="sidebar-logo" aria-label="DeployHub">DH</span>
-
-        {NAV.map(({ id, label, icon }) => (
-          <button
-            key={id}
-            type="button"
-            className={`nav-item ${page === id ? "active" : ""}`}
-            onClick={() => setPage(id)}
-            aria-label={label}
-            aria-current={page === id ? "page" : undefined}
-          >
-            <span aria-hidden="true">{icon}</span>
-            <span className="nav-label">{label}</span>
-          </button>
-        ))}
-
-        <div className="sidebar-bottom">
-          <button
-            type="button"
-            className={`nav-item ${page === "settings" ? "active" : ""}`}
-            onClick={() => setPage("settings")}
-            aria-label="Settings"
-            aria-current={page === "settings" ? "page" : undefined}
-          >
-            <span aria-hidden="true">⚙</span>
-            <span className="nav-label">Settings</span>
-          </button>
-
-          {/* Theme toggle */}
-          <button
-            type="button"
-            className="nav-item"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            aria-label="Toggle theme"
-            title="Toggle theme"
-          >
-            <span aria-hidden="true">{theme === "dark" ? "☀" : "☾"}</span>
-            <span className="nav-label">{theme === "dark" ? "Light mode" : "Dark mode"}</span>
-          </button>
-        </div>
-      </nav>
+      <RadialNav
+        page={page}
+        setPage={setPage}
+        theme={theme}
+        setTheme={setTheme}
+      />
 
       {/* ── Page content ── */}
       <main className="page-content">

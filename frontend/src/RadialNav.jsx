@@ -7,10 +7,11 @@ import { useState, useRef, useEffect, useCallback } from "react";
 */
 
 const ITEMS = [
-  { id: "dashboard", label: "Dashboard", icon: "⌂" },
-  { id: "projects",  label: "Projects",  icon: "◫" },
-  { id: "logs",      label: "Logs",      icon: "≡" },
-  { id: "settings",  label: "Settings",  icon: "⚙" },
+  { id: "dashboard",  label: "Dashboard",  icon: "⌂" },
+  { id: "projects",   label: "Projects",   icon: "◫" },
+  { id: "logs",       label: "Logs",       icon: "≡" },
+  { id: "monitoring", label: "Monitoring", icon: "◎" },
+  { id: "settings",   label: "Settings",   icon: "⚙" },
 ];
 
 // Fan from 90° (straight up) to 0° (straight right), quarter-circle
@@ -97,7 +98,6 @@ export default function RadialNav({ page, setPage, theme, setTheme }) {
           {ITEMS.find((i) => i.id === page)?.label ?? "Menu"}
         </span>
       </button>
-
       {/* Theme toggle — sits just above the trigger */}
       <button
         type="button"

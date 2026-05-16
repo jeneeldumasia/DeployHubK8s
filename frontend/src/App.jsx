@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import DashboardPage from "./pages/DashboardPage";
-import ProjectsPage  from "./pages/ProjectsPage";
-import LogsPage      from "./pages/LogsPage";
-import SettingsPage  from "./pages/SettingsPage";
-import RadialNav     from "./RadialNav";
+import DashboardPage  from "./pages/DashboardPage";
+import ProjectsPage   from "./pages/ProjectsPage";
+import LogsPage       from "./pages/LogsPage";
+import SettingsPage   from "./pages/SettingsPage";
+import MonitoringPage from "./pages/MonitoringPage";
+import RadialNav      from "./RadialNav";
 
 const apiBase = "/api";
 const destructiveActions = new Set(["stop", "delete"]);
@@ -240,6 +241,10 @@ export default function App() {
 
         {page === "settings" && (
           <SettingsPage theme={theme} setTheme={setTheme} />
+        )}
+
+        {page === "monitoring" && (
+          <MonitoringPage projects={projects} />
         )}
       </main>
     </div>

@@ -225,7 +225,7 @@ jobs:
           REPLACE_ME_GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
           REPLACE_ME_GRAFANA_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
           REPLACE_ME_MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
-          REPLACE_ME_MONGO_URI: "mongodb://deployhub:${{ secrets.MONGO_PASSWORD }}@mongo:27017/deployhub?authSource=admin"
+          REPLACE_ME_MONGO_URI: "mongodb://root:${{ secrets.MONGO_PASSWORD }}@mongo:27017/deployhub?authSource=admin"
           REPLACE_ME_REGISTRY_ADDR: ${{ steps.tf.outputs.apps_ecr }}
           REPLACE_ME_PUBLIC_BASE_URL: "http://${{ steps.tf.outputs.ec2_ip }}:3081"
           REPLACE_ME_GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
@@ -460,7 +460,8 @@ jobs:
           BACKEND_SA_ROLE_ARN: ${{ steps.tf.outputs.backend_sa_role }}
           REPLACE_ME_GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
           REPLACE_ME_GRAFANA_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
-          REPLACE_ME_MONGO_URI: "mongodb://mongo:27017/deployhub"
+          REPLACE_ME_MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+          REPLACE_ME_MONGO_URI: "mongodb://root:${{ secrets.MONGO_PASSWORD }}@mongo:27017/deployhub?authSource=admin"
           REPLACE_ME_REGISTRY_ADDR: ${{ steps.tf.outputs.ecr_apps }}
           REPLACE_ME_PUBLIC_BASE_URL: "http://${{ steps.tf.outputs.alb_dns }}"
         run: |

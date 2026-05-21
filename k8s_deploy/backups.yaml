@@ -44,7 +44,7 @@ spec:
 
                   echo "📦 Starting MongoDB backup at ${TIMESTAMP}..."
                   mongodump \
-                    --uri="mongodb://deployhub:${MONGO_PASSWORD}@mongo:27017/deployhub?authSource=admin" \
+                    --uri="mongodb://${MONGO_USERNAME}:${MONGO_PASSWORD}@mongo:27017/deployhub?authSource=admin" \
                     --archive="${BACKUP_FILE}" \
                     --gzip
 
@@ -55,6 +55,11 @@ spec:
                   echo "🧹 Old backups pruned. Current backups:"
                   ls -lh "${BACKUP_DIR}"/mongo-dump-*.gz 2>/dev/null || echo "  (none)"
               env:
+                - name: MONGO_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: mongo-credentials
+                      key: username
                 - name: MONGO_PASSWORD
                   valueFrom:
                     secretKeyRef:

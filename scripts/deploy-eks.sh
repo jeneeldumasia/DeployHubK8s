@@ -184,6 +184,9 @@ sed -i "s|deployhub-backend:latest|$ECR_BACKEND:$IMAGE_TAG|g" k8s_rendered/backe
 sed -i "s|deployhub-frontend:latest|$ECR_FRONTEND:$IMAGE_TAG|g" k8s_rendered/frontend.yaml
 sed -i "s|\${BACKEND_SA_ROLE_ARN}|$BACKEND_SA_ROLE|g" k8s_rendered/backend.yaml
 
+# Remove unrendered template manifests from k8s_rendered/
+rm -f k8s_rendered/secrets.yaml k8s_rendered/cloudflared.yaml
+
 kubectl apply -f k8s_rendered/namespace.yaml
 kubectl apply -f k8s_rendered/
 

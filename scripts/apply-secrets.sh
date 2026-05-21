@@ -69,8 +69,8 @@ fi
 read -rp "GitHub webhook secret (leave blank to skip): " GITHUB_WEBHOOK_SECRET
 GITHUB_WEBHOOK_SECRET="${GITHUB_WEBHOOK_SECRET:-}"
 
-# Build the authenticated MongoDB URI
-MONGO_URI="mongodb://deployhub:${MONGO_PASSWORD}@mongo:27017/deployhub?authSource=admin"
+# Build the authenticated MongoDB URI using the root user
+MONGO_URI="mongodb://root:${MONGO_PASSWORD}@mongo:27017/deployhub?authSource=admin"
 
 # ── Render and apply — values never touch disk ────────────────────────────────
 echo ""

@@ -224,9 +224,11 @@ jobs:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
           REPLACE_ME_GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
           REPLACE_ME_GRAFANA_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
-          REPLACE_ME_MONGO_URI: "mongodb://mongo:27017/deployhub"
+          REPLACE_ME_MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+          REPLACE_ME_MONGO_URI: "mongodb://deployhub:${{ secrets.MONGO_PASSWORD }}@mongo:27017/deployhub?authSource=admin"
           REPLACE_ME_REGISTRY_ADDR: ${{ steps.tf.outputs.apps_ecr }}
           REPLACE_ME_PUBLIC_BASE_URL: "http://${{ steps.tf.outputs.ec2_ip }}:3081"
+          REPLACE_ME_GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
           BACKEND_SA_ROLE_ARN: ""
           TUNNEL_ID: ${{ secrets.CLOUDFLARE_TUNNEL_ID }}
         run: |
@@ -267,6 +269,7 @@ jobs:
           ECR_REGISTRY: ${{ needs.build-and-push.outputs.ecr-registry }}
           CF_TUNNEL_ID: ${{ secrets.CLOUDFLARE_TUNNEL_ID }}
           CF_CREDENTIALS: ${{ secrets.CLOUDFLARE_TUNNEL_CREDENTIALS }}
+          MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
         run: |
           EC2_IP=${{ steps.tf.outputs.ec2_ip }}
           INSTANCE_ID=${{ steps.tf.outputs.instance_id }}

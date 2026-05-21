@@ -12,6 +12,10 @@ Go to **Settings → Secrets and variables → Actions** in your GitHub repo and
 | `EC2_PUBLIC_IP` | `3.95.33.38` (fallback if Terraform state unavailable) | Terraform output or AWS Console |
 | `GRAFANA_ADMIN_USER` | Grafana login username (e.g. `admin`) | Choose your own |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana login password | Choose your own — min 8 chars |
+| `MONGO_PASSWORD` | MongoDB password for the `deployhub` user | `openssl rand -base64 24` |
+| `GITHUB_WEBHOOK_SECRET` | Secret for verifying GitHub webhook signatures | `openssl rand -hex 32` (optional) |
+| `CLOUDFLARE_TUNNEL_ID` | Cloudflare tunnel UUID | See `docs/cloudflare-tunnel-setup.md` |
+| `CLOUDFLARE_TUNNEL_CREDENTIALS` | Contents of `~/.cloudflared/<id>.json` | See `docs/cloudflare-tunnel-setup.md` |
 
 ## IAM Permissions needed
 

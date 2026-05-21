@@ -534,7 +534,8 @@ async def metrics_endpoint() -> Response:
 
 
 @app.get("/api/projects/{project_id}/health")
-async def get_project_health_endpoint(project_id: str) -> dict:    project = await get_project_by_id(project_id)
+async def get_project_health_endpoint(project_id: str) -> dict:
+    project = await get_project_by_id(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     if settings.deployment_mode != "k8s":

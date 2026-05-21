@@ -121,7 +121,8 @@ class DeploymentWorker:
             await record_log("Cloning or updating repository")
             repo_path = await clone_or_update_repo(project_id, project["normalized_repo_url"])
             await update_project(project_id, {"repo_path": str(repo_path)})
-            await record_log(f"Repository ready at {repo_path}")            
+            await record_log(f"Repository ready at {repo_path}")
+
             context_path = project.get("context_path") or ""
             build_context = repo_path / context_path
             

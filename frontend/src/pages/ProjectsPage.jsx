@@ -132,6 +132,31 @@ export default function ProjectsPage({
                 </div>
               </div>
 
+              {/* Environment variables — show if any were set */}
+              {projectForActions.env_vars && Object.keys(projectForActions.env_vars).length > 0 && (
+                <div className="webhook-section">
+                  <h3>Environment Variables</h3>
+                  <p>Injected into the container at runtime.</p>
+                  <div style={{
+                    background: "var(--bg-card)",
+                    border: "1px solid var(--border-strong)",
+                    borderRadius: 10,
+                    padding: "0.75rem 1rem",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: "0.78rem",
+                    lineHeight: 1.8,
+                  }}>
+                    {Object.entries(projectForActions.env_vars).map(([k, v]) => (
+                      <div key={k}>
+                        <span style={{ color: "var(--accent-primary)", fontWeight: 700 }}>{k}</span>
+                        <span style={{ color: "var(--text-muted)" }}>=</span>
+                        <span style={{ color: "var(--text-secondary)" }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {projectForActions.last_error && (
                 <p className="error inline-error">{projectForActions.last_error}</p>
               )}

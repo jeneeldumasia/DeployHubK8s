@@ -187,7 +187,13 @@ class DeploymentWorker:
                     raise RuntimeError("No free NodePorts available in the configured range")
 
                 await record_log(f"Deploying Pod {container_name} with public NodePort {assigned_port}")
-                pod_result = await create_pod(name=container_name, image=registry_image, port=container_port, node_port=assigned_port)
+                pod_result = await create_pod(
+                    name=container_name,
+                    image=registry_image,
+                    port=container_port,
+                    node_port=assigned_port,
+                    env_vars=project.get("env_vars", {}),
+                )
                 if pod_result["status"] == "error":
                     raise RuntimeError(f"K8s pod creation failed: {pod_result.get('error')}")
 
@@ -244,6 +250,8 @@ class DeploymentWorker:
                         "PORT": str(container_port),
                         "HOST": "0.0.0.0",
                         "BIND_ADDRESS": "0.0.0.0",
+                        # User-supplied env vars override defaults
+                        **project.get("env_vars", {}),
                     },
                 )
                 for line in run_logs:
@@ -382,9 +390,23 @@ class DeploymentWorker:
             elif "dev" in scripts:
                 command = "npm run dev -- --host 0.0.0.0 --port ${PORT}"
             else:
-                raise RuntimeError("No supported Node start command found. Add a Dockerfile or define start/dev scripts.")
+                # No scripts defined — fall back to direct node execution
+                for entry in ["index.js", "server.js", "app.js"]:
+                    if (repo_path / entry).exists():
+                        command = f"node {entry}"
+                        break
+                else:
+                    raise RuntimeError("No supported Node start command found. Add a Dockerfile or define start/dev scripts.")
 
-            install_command = "npm ci" if metadata.get("has_package_lock") else "npm install"
+            # Use the lock file that actually exists
+            if metadata.get("has_yarn_lock"):
+                install_command = "yarn install --frozen-lockfile"
+            elif metadata.get("has_pnpm_lock"):
+                install_command = "npm install -g pnpm && pnpm install --frozen-lockfile"
+            elif metadata.get("has_package_lock"):
+                install_command = "npm ci"
+            else:
+                install_command = "npm install"
             return "\n".join(
                 [
                     "FROM node:20-alpine",

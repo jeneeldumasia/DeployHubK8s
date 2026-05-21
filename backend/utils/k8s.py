@@ -16,9 +16,21 @@ def _get_k8s_client() -> client.CoreV1Api:
     return client.CoreV1Api()
 
 
-def _create_pod_sync(name: str, image: str, port: int, node_port: int = None) -> dict:
+def _create_pod_sync(name: str, image: str, port: int, node_port: int = None, env_vars: dict = None) -> dict:
     v1 = _get_k8s_client()
     namespace = settings.k8s_namespace
+
+    # Base env vars + user-supplied overrides
+    base_env = [
+        {"name": "PORT",         "value": str(port)},
+        {"name": "HOST",         "value": "0.0.0.0"},
+        {"name": "BIND_ADDRESS", "value": "0.0.0.0"},
+    ]
+    if env_vars:
+        # User vars override base vars
+        base_names = {e["name"] for e in base_env}
+        base_env = [e for e in base_env if e["name"] not in env_vars]
+        base_env += [{"name": k, "value": v} for k, v in env_vars.items()]
 
     pod_manifest = {
         "apiVersion": "v1",
@@ -35,11 +47,7 @@ def _create_pod_sync(name: str, image: str, port: int, node_port: int = None) ->
                     "image": image,
                     "imagePullPolicy": "Always",
                     "ports": [{"containerPort": port}],
-                    "env": [
-                        {"name": "PORT", "value": str(port)},
-                        {"name": "HOST", "value": "0.0.0.0"},
-                        {"name": "BIND_ADDRESS", "value": "0.0.0.0"},
-                    ],
+                    "env": base_env,
                 }
             ]
         },
@@ -146,9 +154,9 @@ def _get_occupied_node_ports_sync() -> list[int]:
 
 # ── Async wrappers (run blocking SDK calls in a thread pool) ──────────────────
 
-async def create_pod(name: str, image: str, port: int, node_port: int = None) -> dict:
+async def create_pod(name: str, image: str, port: int, node_port: int = None, env_vars: dict = None) -> dict:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, partial(_create_pod_sync, name, image, port, node_port))
+    return await loop.run_in_executor(None, partial(_create_pod_sync, name, image, port, node_port, env_vars))
 
 
 async def delete_pod(name: str) -> dict:

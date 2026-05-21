@@ -10,8 +10,17 @@ const apiBase = "/api";
 const destructiveActions = new Set(["stop", "delete"]);
 
 async function parseResponse(response) {
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.detail || "Request failed");
+  const text = await response.text();
+  let body = {};
+  try {
+    body = JSON.parse(text);
+  } catch {
+    // Server returned non-JSON (e.g. a 500 HTML error page or plain text)
+    body = { detail: text.slice(0, 300) || "Request failed" };
+  }
+  if (!response.ok) {
+    throw new Error(body.detail || `Request failed (${response.status})`);
+  }
   return body;
 }
 
@@ -31,6 +40,7 @@ export default function App() {
   const [theme, setTheme]                     = useState(localStorage.getItem("theme") || "light");
   const [detectedServices, setDetectedServices] = useState(null);
   const [analyzing, setAnalyzing]             = useState(false);
+  const [envVars, setEnvVars]                 = useState("");
 
   /* ── Theme sync ────────────────────────────────────────────── */
   useEffect(() => {
@@ -130,14 +140,32 @@ export default function App() {
 
   async function deployService(service) {
     setActionInFlight("create");
+    // Parse KEY=VALUE lines from the env vars textarea
+    const parsedEnvVars = {};
+    for (const line of envVars.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eqIdx = trimmed.indexOf("=");
+      if (eqIdx > 0) {
+        const key = trimmed.slice(0, eqIdx).trim();
+        const val = trimmed.slice(eqIdx + 1).trim();
+        if (key) parsedEnvVars[key] = val;
+      }
+    }
     try {
       const res = await fetch(`${apiBase}/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo_url: repoUrl, context_path: service.path, service_name: service.name }),
+        body: JSON.stringify({
+          repo_url: repoUrl,
+          context_path: service.path,
+          service_name: service.name,
+          env_vars: parsedEnvVars,
+        }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail || "Failed to create project"); }
       setRepoUrl("");
+      setEnvVars("");
       setDetectedServices(null);
       await loadProjects();
     } catch (err) {
@@ -204,6 +232,8 @@ export default function App() {
             projects={projects}
             repoUrl={repoUrl}
             setRepoUrl={setRepoUrl}
+            envVars={envVars}
+            setEnvVars={setEnvVars}
             analyzing={analyzing}
             actionInFlight={actionInFlight}
             detectedServices={detectedServices}

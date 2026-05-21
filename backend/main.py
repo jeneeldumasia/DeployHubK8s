@@ -126,6 +126,7 @@ def serialize_project_summary(document: dict) -> ProjectSummary:
         created_at=document["created_at"],
         updated_at=document["updated_at"],
         last_deployed_at=document.get("last_deployed_at"),
+        env_vars=document.get("env_vars", {}),
     )
 
 
@@ -215,6 +216,7 @@ async def create_project_endpoint(payload: ProjectCreate) -> ProjectSummary:
         "normalized_repo_url": normalized_repo_url,
         "context_path": context_path,
         "service_name": payload.service_name,
+        "env_vars": payload.env_vars,
         "status": "queued",
         "dockerfile_path": None,
         "image_tag": None,

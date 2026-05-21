@@ -12,6 +12,7 @@ class ProjectCreate(BaseModel):
     repo_url: HttpUrl
     context_path: str = ""
     service_name: str | None = None
+    env_vars: dict[str, str] = Field(default_factory=dict)
 
 
 class ApiErrorResponse(BaseModel):
@@ -55,6 +56,7 @@ class ProjectSummary(BaseModel):
     updated_at: datetime
     created_at: datetime
     last_deployed_at: datetime | None
+    env_vars: dict[str, str] = Field(default_factory=dict)
 
 
 class ProjectDetail(ProjectSummary):

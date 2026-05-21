@@ -5,28 +5,34 @@ from models import ProjectType
 
 
 def detect_project_type(repo_path: Path) -> tuple[ProjectType, dict]:
-    package_json = repo_path / "package.json"
-    requirements = repo_path / "requirements.txt"
+    package_json  = repo_path / "package.json"
+    requirements  = repo_path / "requirements.txt"
     pyproject_toml = repo_path / "pyproject.toml"
-    main_py = repo_path / "main.py"
-    app_py = repo_path / "app.py"
-    dockerfile = repo_path / "Dockerfile"
-    package_lock = repo_path / "package-lock.json"
-    yarn_lock = repo_path / "yarn.lock"
-    pnpm_lock = repo_path / "pnpm-lock.yaml"
+    main_py       = repo_path / "main.py"
+    app_py        = repo_path / "app.py"
+    dockerfile    = repo_path / "Dockerfile"
+    package_lock  = repo_path / "package-lock.json"
+    yarn_lock     = repo_path / "yarn.lock"
+    pnpm_lock     = repo_path / "pnpm-lock.yaml"
 
-    static_candidates = [repo_path / "index.html", repo_path / "dist" / "index.html", repo_path / "build" / "index.html"]
+    static_candidates = [
+        repo_path / "index.html",
+        repo_path / "dist" / "index.html",
+        repo_path / "build" / "index.html",
+        repo_path / "public" / "index.html",
+    ]
 
     metadata: dict = {
-        "has_dockerfile": dockerfile.exists(),
-        "has_package_json": package_json.exists(),
+        "has_dockerfile":      dockerfile.exists(),
+        "has_package_json":    package_json.exists(),
         "has_requirements_txt": requirements.exists(),
-        "has_pyproject_toml": pyproject_toml.exists(),
-        "has_package_lock": package_lock.exists(),
-        "has_yarn_lock": yarn_lock.exists(),
-        "has_pnpm_lock": pnpm_lock.exists(),
+        "has_pyproject_toml":  pyproject_toml.exists(),
+        "has_package_lock":    package_lock.exists(),
+        "has_yarn_lock":       yarn_lock.exists(),
+        "has_pnpm_lock":       pnpm_lock.exists(),
     }
 
+    # ── Node.js ───────────────────────────────────────────────────────────────
     if package_json.exists():
         scripts = {}
         package_data = {}
@@ -38,17 +44,49 @@ def detect_project_type(repo_path: Path) -> tuple[ProjectType, dict]:
             package_data = {}
         metadata["node_scripts"] = scripts
         metadata["is_monorepo"] = (
-            (repo_path / "packages").exists() or (repo_path / "apps").exists() or "workspaces" in package_data
+            (repo_path / "packages").exists()
+            or (repo_path / "apps").exists()
+            or "workspaces" in package_data
         )
         return "node", metadata
 
+    # ── Node.js — no package.json but has common server entry files ───────────
+    # Covers cases like a bare `server/` directory with index.js / server.js
+    # that has a package.json one level up (already cloned into context_path).
+    node_entry_files = ["index.js", "server.js", "app.js", "index.ts", "server.ts", "app.ts"]
+    if any((repo_path / f).exists() for f in node_entry_files):
+        # Look for a package.json anywhere in parent dirs up to 2 levels
+        for parent in [repo_path.parent, repo_path.parent.parent]:
+            parent_pkg = parent / "package.json"
+            if parent_pkg.exists():
+                try:
+                    package_data = json.loads(parent_pkg.read_text(encoding="utf-8"))
+                    scripts = package_data.get("scripts", {})
+                    metadata["node_scripts"] = scripts
+                    metadata["has_package_json"] = True
+                    metadata["has_package_lock"] = (parent / "package-lock.json").exists()
+                    metadata["has_yarn_lock"] = (parent / "yarn.lock").exists()
+                    return "node", metadata
+                except (OSError, json.JSONDecodeError):
+                    pass
+        # No parent package.json — still likely Node, generate a minimal one
+        metadata["node_scripts"] = {"start": "node index.js"}
+        metadata["has_package_json"] = False
+        return "node", metadata
+
+    # ── Python ────────────────────────────────────────────────────────────────
     if requirements.exists() or pyproject_toml.exists() or main_py.exists() or app_py.exists():
         metadata["python_entrypoint"] = detect_python_entrypoint(repo_path, main_py, app_py)
         return "python", metadata
 
+    # ── Static ────────────────────────────────────────────────────────────────
     for static_path in static_candidates:
         if static_path.exists():
-            metadata["static_root"] = "." if static_path.parent == repo_path else str(static_path.parent.relative_to(repo_path))
+            metadata["static_root"] = (
+                "."
+                if static_path.parent == repo_path
+                else str(static_path.parent.relative_to(repo_path))
+            )
             return "static", metadata
 
     return "unknown", metadata

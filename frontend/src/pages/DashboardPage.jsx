@@ -4,6 +4,8 @@ export default function DashboardPage({
   projects,
   repoUrl,
   setRepoUrl,
+  envVars,
+  setEnvVars,
   analyzing,
   actionInFlight,
   detectedServices,
@@ -12,6 +14,7 @@ export default function DashboardPage({
   onDeployService,
   onNavigateProjects,
 }) {
+  const [showEnvVars, setShowEnvVars] = useState(false);
   const total    = projects.length;
   const running  = projects.filter((p) => p.status === "running").length;
   const building = projects.filter((p) => p.status === "building").length;
@@ -66,6 +69,47 @@ export default function DashboardPage({
             {analyzing ? "Analyzing…" : actionInFlight === "create" ? "Initializing…" : "Add Project"}
           </button>
         </form>
+
+        {/* Environment variables — optional, collapsed by default */}
+        <div style={{ marginTop: "0.75rem", maxWidth: 580 }}>
+          <button
+            type="button"
+            className="secondary-button"
+            style={{ fontSize: "0.75rem", padding: "0.3rem 0.8rem", display: "flex", alignItems: "center", gap: "0.4rem" }}
+            onClick={() => setShowEnvVars((v) => !v)}
+          >
+            <span>{showEnvVars ? "▾" : "▸"}</span>
+            Environment Variables {envVars.trim() ? `(${envVars.trim().split("\n").filter(l => l.trim() && !l.startsWith("#")).length} set)` : "(optional)"}
+          </button>
+
+          {showEnvVars && (
+            <div style={{ marginTop: "0.5rem" }}>
+              <textarea
+                value={envVars}
+                onChange={(e) => setEnvVars(e.target.value)}
+                placeholder={"KEY=value\nVITE_API_URL=http://34.x.x.x:3101\nNODE_ENV=production"}
+                rows={5}
+                style={{
+                  width: "100%",
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border-strong)",
+                  borderRadius: 10,
+                  padding: "0.75rem 1rem",
+                  color: "var(--text-primary)",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: "0.8rem",
+                  lineHeight: 1.6,
+                  resize: "vertical",
+                  outline: "none",
+                }}
+              />
+              <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.3rem" }}>
+                One <code style={{ fontFamily: "monospace" }}>KEY=value</code> per line. Lines starting with # are ignored.
+                Use this to set API URLs, feature flags, or any runtime config without touching the repo.
+              </p>
+            </div>
+          )}
+        </div>
 
         {detectedServices && (
           <div className="service-selector">

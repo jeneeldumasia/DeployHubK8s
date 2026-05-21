@@ -25,6 +25,8 @@ provider "aws" {
   region = var.aws_region
 }
 
+data "aws_caller_identity" "current" {}
+
 locals {
   project = "deployhub"
   tags = {
@@ -205,14 +207,17 @@ module "ecs_monitoring" {
   source                      = "../../modules/ecs-monitoring"
   project                     = local.project
   aws_region                  = var.aws_region
+  aws_account_id              = data.aws_caller_identity.current.account_id
+  vpc_id                      = module.networking.vpc_id
   private_subnet_ids          = module.networking.private_subnet_ids
   ecs_tasks_security_group_id = module.networking.ecs_tasks_security_group_id
   grafana_target_group_arn    = aws_lb_target_group.grafana.arn
   alb_dns_name                = aws_lb.main.dns_name
-  eks_metrics_endpoint        = "http://${aws_lb.main.dns_name}/metrics"
+  # Prometheus scrapes the EKS backend via the ALB internal DNS
+  eks_metrics_endpoint_host   = aws_lb.main.dns_name
+  eks_metrics_endpoint_port   = 80
   grafana_admin_user          = var.grafana_admin_user
   grafana_admin_password      = var.grafana_admin_password
-  grafana_secret_arn          = ""   # populated after first apply via module output
   tags                        = local.tags
 }
 

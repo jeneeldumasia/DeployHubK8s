@@ -7,6 +7,16 @@ variable "aws_region" {
   default = "us-east-1"
 }
 
+variable "aws_account_id" {
+  type        = string
+  description = "AWS account ID — used for S3 bucket naming and SSM ARNs"
+}
+
+variable "vpc_id" {
+  type        = string
+  description = "VPC ID for Cloud Map private DNS namespace"
+}
+
 variable "private_subnet_ids" {
   type = list(string)
 }
@@ -25,10 +35,16 @@ variable "alb_dns_name" {
   description = "ALB DNS name for Grafana root URL config"
 }
 
-variable "eks_metrics_endpoint" {
+variable "eks_metrics_endpoint_host" {
   type        = string
-  description = "Internal endpoint for Prometheus to scrape EKS backend metrics"
+  description = "Hostname/IP Prometheus uses to scrape EKS backend /metrics"
   default     = ""
+}
+
+variable "eks_metrics_endpoint_port" {
+  type        = number
+  description = "Port for the EKS backend /metrics scrape target"
+  default     = 8000
 }
 
 variable "grafana_admin_user" {
@@ -40,12 +56,6 @@ variable "grafana_admin_user" {
 variable "grafana_admin_password" {
   type      = string
   sensitive = true
-}
-
-variable "grafana_secret_arn" {
-  type        = string
-  description = "ARN of the Secrets Manager secret for Grafana credentials (self-reference, set after creation)"
-  default     = ""
 }
 
 variable "tags" {

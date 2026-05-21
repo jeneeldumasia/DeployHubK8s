@@ -306,6 +306,29 @@ jobs:
           fi
 
           kubectl apply -f /home/ubuntu/k8s_deploy/namespace.yaml
+
+          # If MongoDB deployment exists, check if auth is failing due to an uninitialized data volume
+          if kubectl get deployment mongo -n deployhub &>/dev/null; then
+            echo "Checking MongoDB authentication status..."
+            # Wait briefly for mongo pod to be running if it's not
+            kubectl rollout status deployment/mongo -n deployhub --timeout=30s || true
+            
+            # Check if we can authenticate as root
+            if kubectl exec -n deployhub deployment/mongo -- mongosh --username root --password "$MONGO_PASSWORD" --authenticationDatabase admin --eval "db.adminCommand('ping')" &>/dev/null; then
+              echo "✅ MongoDB authentication is working."
+            else
+              echo "⚠️ MongoDB authentication failed. Checking if localhost exception is active (no users exist)..."
+              if kubectl exec -n deployhub deployment/mongo -- mongosh --eval "db.adminCommand('ping')" &>/dev/null; then
+                echo "🗑️ MongoDB is unauthenticated. Deleting deployment and PVC to force clean initialization with root user..."
+                kubectl delete deployment mongo -n deployhub || true
+                kubectl delete pvc mongo-pvc -n deployhub || true
+                sleep 5
+              else
+                echo "❌ MongoDB is not responding or auth is active with different credentials."
+              fi
+            fi
+          fi
+
           kubectl apply -f /home/ubuntu/k8s_deploy/
           kubectl rollout status deployment/backend  -n deployhub --timeout=300s || {
             echo "=== backend pod describe ==="

@@ -23,6 +23,7 @@ from database import (
     create_project,
     delete_project,
     get_database,
+    get_deployment_stats,
     get_project_by_id,
     get_project_by_normalized_repo_url,
     get_project_by_url_and_path,
@@ -533,8 +534,7 @@ async def metrics_endpoint() -> Response:
 
 
 @app.get("/api/projects/{project_id}/health")
-async def get_project_health_endpoint(project_id: str) -> dict:
-    project = await get_project_by_id(project_id)
+async def get_project_health_endpoint(project_id: str) -> dict:    project = await get_project_by_id(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     if settings.deployment_mode != "k8s":
@@ -551,3 +551,20 @@ async def get_project_health_endpoint(project_id: str) -> dict:
         "service_url": project.get("service_url"),
         "pod": {"name": container_name, "restart_count": restart_count},
     }
+
+
+@app.get("/api/stats")
+async def get_stats_endpoint() -> dict:
+    """
+    Persistent deployment stats aggregated from MongoDB deployment_history.
+    Unlike Prometheus counters these survive pod restarts.
+    """
+    stats = await get_deployment_stats()
+    by_status = {
+        "running":  await count_projects_by_status("running"),
+        "failed":   await count_projects_by_status("failed"),
+        "stopped":  await count_projects_by_status("stopped"),
+        "building": await count_projects_by_status("building"),
+        "queued":   await count_projects_by_status("queued"),
+    }
+    return {**stats, "by_status": by_status}

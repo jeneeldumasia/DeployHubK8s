@@ -4,8 +4,8 @@ const apiBase = "/api";
 
 /* ── tiny hook: fetch /api/system on mount + interval ── */
 function useSystemStats(intervalMs = 10000) {
-  const [data, setData]     = useState(null);
-  const [error, setError]   = useState(null);
+  const [data, setData]       = useState(null);
+  const [error, setError]     = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetch_ = useCallback(async () => {
@@ -14,11 +14,8 @@ function useSystemStats(intervalMs = 10000) {
       if (!res.ok) throw new Error("Failed to fetch system stats");
       setData(await res.json());
       setError(null);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -27,7 +24,30 @@ function useSystemStats(intervalMs = 10000) {
     return () => clearInterval(id);
   }, [fetch_, intervalMs]);
 
-  return { data, error, loading, refresh: fetch_ };
+  return { data, error, loading };
+}
+
+/* ── persistent stats from MongoDB (survives pod restarts) ── */
+function usePersistentStats(intervalMs = 15000) {
+  const [data, setData]   = useState(null);
+  const [error, setError] = useState(null);
+
+  const fetch_ = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiBase}/stats`);
+      if (!res.ok) throw new Error("Failed to fetch stats");
+      setData(await res.json());
+      setError(null);
+    } catch (e) { setError(e.message); }
+  }, []);
+
+  useEffect(() => {
+    fetch_();
+    const id = setInterval(fetch_, intervalMs);
+    return () => clearInterval(id);
+  }, [fetch_, intervalMs]);
+
+  return { data, error };
 }
 
 /* ── parse raw prometheus text into { metricName: [{labels, value}] } ── */
@@ -175,21 +195,26 @@ function ExternalLink({ href, label, description, port }) {
 /* ── main page ── */
 export default function MonitoringPage({ projects }) {
   const { data: sys, error: sysErr, loading } = useSystemStats(10000);
-  const { metrics, error: metErr } = useMetrics(15000);
+  const { data: stats, error: statsErr }       = usePersistentStats(15000);
+  const { metrics, error: metErr }             = useMetrics(15000);
 
   const host = window.location.hostname;
 
-  const totalDeployments   = metricSum(metrics, "deployhub_deployments_total");
-  const totalFailures      = metricSum(metrics, "deployhub_deployment_failures_total");
-  const totalSuccesses     = metricSum(metrics, "deployhub_deployment_success_total");
-  const hcFailures         = metricSum(metrics, "deployhub_health_check_failures_total");
-  const httpTotal          = metricSum(metrics, "http_requests_total");
-  const deployByAction     = metricByLabel(metrics, "deployhub_deployments_total", "action");
-  const failuresByPhase    = metricByLabel(metrics, "deployhub_deployment_failures_total", "phase");
-  const httpByPath         = metricByLabel(metrics, "http_requests_total", "path")
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 8);
-  const podRestarts        = metricByLabel(metrics, "deployhub_pod_restarts_total", "pod_name");
+  // Persistent stats from MongoDB (primary source — survives restarts)
+  const totalDeployments = stats?.total      ?? 0;
+  const totalSuccesses   = stats?.successful ?? 0;
+  const totalFailures    = stats?.failed     ?? 0;
+  const totalRollbacks   = stats?.rolled_back ?? 0;
+  const avgDuration      = stats?.avg_duration_seconds;
+
+  // Prometheus metrics (supplementary — resets on restart, shows current session)
+  const hcFailures  = metricSum(metrics, "deployhub_health_check_failures_total");
+  const httpTotal   = metricSum(metrics, "http_requests_total");
+  const deployByAction  = metricByLabel(metrics, "deployhub_deployments_total", "action");
+  const failuresByPhase = metricByLabel(metrics, "deployhub_deployment_failures_total", "phase");
+  const httpByPath      = metricByLabel(metrics, "http_requests_total", "path")
+    .sort((a, b) => b.value - a.value).slice(0, 8);
+  const podRestarts = metricByLabel(metrics, "deployhub_pod_restarts_total", "pod_name");
 
   const successRate = totalDeployments > 0
     ? ((totalSuccesses / totalDeployments) * 100).toFixed(1)
@@ -202,9 +227,9 @@ export default function MonitoringPage({ projects }) {
         <p>Live system health, deployment metrics, and links to Grafana &amp; Prometheus.</p>
       </div>
 
-      {(sysErr || metErr) && (
+      {(sysErr || metErr || statsErr) && (
         <p className="error inline-error" style={{ marginBottom: "1.5rem" }}>
-          {sysErr || metErr}
+          {sysErr || statsErr || metErr}
         </p>
       )}
 
@@ -241,13 +266,14 @@ export default function MonitoringPage({ projects }) {
         ) : null}
       </div>
 
-      {/* ── Deployment metrics ── */}
+      {/* ── Deployment metrics — from MongoDB, persists across restarts ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.25rem", marginBottom: "1.5rem" }}>
-        <StatTile label="Total Deployments" value={totalDeployments.toFixed(0)} sub="all time" />
-        <StatTile label="Successful" value={totalSuccesses.toFixed(0)} sub={`${successRate}% success rate`} accent="var(--status-running)" />
-        <StatTile label="Failed" value={totalFailures.toFixed(0)} sub="all phases" accent={totalFailures > 0 ? "var(--status-failed)" : undefined} />
-        <StatTile label="Health Check Failures" value={hcFailures.toFixed(0)} sub="triggered rollback" accent={hcFailures > 0 ? "var(--status-building)" : undefined} />
-        <StatTile label="HTTP Requests" value={httpTotal.toFixed(0)} sub="total handled" />
+        <StatTile label="Total Deployments" value={totalDeployments} sub="all time (persistent)" />
+        <StatTile label="Successful" value={totalSuccesses} sub={`${successRate}% success rate`} accent="var(--status-running)" />
+        <StatTile label="Failed" value={totalFailures} sub="all phases" accent={totalFailures > 0 ? "var(--status-failed)" : undefined} />
+        <StatTile label="Rolled Back" value={totalRollbacks} sub="auto-rollbacks triggered" accent={totalRollbacks > 0 ? "var(--status-building)" : undefined} />
+        <StatTile label="Avg Build Time" value={avgDuration != null ? `${avgDuration}s` : "—"} sub="across all deployments" />
+        <StatTile label="HTTP Requests" value={httpTotal.toFixed(0)} sub="this session (resets on restart)" />
       </div>
 
       {/* ── Breakdown tables ── */}

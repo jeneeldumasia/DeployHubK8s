@@ -140,3 +140,32 @@ async def count_projects() -> int:
 
 async def count_projects_by_status(status: str) -> int:
     return await get_projects_collection().count_documents({"status": status})
+
+
+async def get_deployment_stats() -> dict[str, Any]:
+    """
+    Aggregate persistent deployment stats from MongoDB deployment_history arrays.
+    These survive pod restarts unlike Prometheus counters.
+    """
+    pipeline = [
+        {"$unwind": {"path": "$deployment_history", "preserveNullAndEmptyArrays": False}},
+        {"$group": {
+            "_id": None,
+            "total":        {"$sum": 1},
+            "successful":   {"$sum": {"$cond": [{"$eq": ["$deployment_history.status", "success"]}, 1, 0]}},
+            "failed":       {"$sum": {"$cond": [{"$eq": ["$deployment_history.status", "failed"]}, 1, 0]}},
+            "rolled_back":  {"$sum": {"$cond": [{"$eq": ["$deployment_history.status", "rolled_back"]}, 1, 0]}},
+            "avg_duration": {"$avg": "$deployment_history.duration_seconds"},
+        }},
+    ]
+    results = await get_projects_collection().aggregate(pipeline).to_list(length=1)
+    if not results:
+        return {"total": 0, "successful": 0, "failed": 0, "rolled_back": 0, "avg_duration_seconds": None}
+    r = results[0]
+    return {
+        "total":                  r.get("total", 0),
+        "successful":             r.get("successful", 0),
+        "failed":                 r.get("failed", 0),
+        "rolled_back":            r.get("rolled_back", 0),
+        "avg_duration_seconds":   round(r["avg_duration"], 1) if r.get("avg_duration") else None,
+    }

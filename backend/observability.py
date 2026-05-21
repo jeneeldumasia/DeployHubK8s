@@ -44,6 +44,19 @@ deployhub_deployment_success_total = Counter(
     ["action"],
 )
 
+# Cost tracking metrics (#19)
+deployhub_pod_runtime_seconds = Counter(
+    "deployhub_pod_runtime_seconds",
+    "Cumulative pod runtime in seconds per project",
+    ["project_id"],
+)
+deployhub_build_duration_seconds = Histogram(
+    "deployhub_build_duration_seconds",
+    "Time spent building Docker images",
+    ["project_type"],
+    buckets=[30, 60, 120, 300, 600, 900, 1800],
+)
+
 
 def log_event(event: str, **fields: Any) -> None:
     payload = {"event": event, **fields}

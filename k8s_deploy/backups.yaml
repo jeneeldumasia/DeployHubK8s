@@ -1,0 +1,142 @@
+# ── MongoDB Backup CronJob ────────────────────────────────────────────────────
+# Runs daily at 02:00 UTC. Dumps MongoDB to a PVC, keeps 7 days locally,
+# and optionally uploads to S3 (set BACKUP_S3_BUCKET in backend-config).
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-backup-pvc
+  namespace: deployhub
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mongo-backup
+  namespace: deployhub
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: backend-sa
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: mongo:6
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -e
+                  BACKUP_DIR="/backups"
+                  TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                  BACKUP_FILE="${BACKUP_DIR}/mongo-dump-${TIMESTAMP}.gz"
+
+                  echo "📦 Starting MongoDB backup at ${TIMESTAMP}..."
+                  mongodump \
+                    --uri="mongodb://deployhub:${MONGO_PASSWORD}@mongo:27017/deployhub?authSource=admin" \
+                    --archive="${BACKUP_FILE}" \
+                    --gzip
+
+                  echo "✅ Backup created: ${BACKUP_FILE} ($(du -sh ${BACKUP_FILE} | cut -f1))"
+
+                  # Retain only the last 7 days
+                  find "${BACKUP_DIR}" -name "mongo-dump-*.gz" -mtime +7 -delete
+                  echo "🧹 Old backups pruned. Current backups:"
+                  ls -lh "${BACKUP_DIR}"/mongo-dump-*.gz 2>/dev/null || echo "  (none)"
+              env:
+                - name: MONGO_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: mongo-credentials
+                      key: password
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backups
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: mongo-backup-pvc
+---
+# Optional S3 upload — runs 30 min after the backup job.
+# Only active if BACKUP_S3_BUCKET is set in backend-config.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mongo-backup-s3
+  namespace: deployhub
+spec:
+  schedule: "30 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: backend-sa
+          restartPolicy: OnFailure
+          containers:
+            - name: s3-upload
+              image: amazon/aws-cli:latest
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -e
+                  if [ -z "${BACKUP_S3_BUCKET}" ]; then
+                    echo "BACKUP_S3_BUCKET not set — skipping S3 upload"
+                    exit 0
+                  fi
+                  LATEST=$(ls -t /backups/mongo-dump-*.gz 2>/dev/null | head -1)
+                  if [ -z "${LATEST}" ]; then
+                    echo "❌ No backup file found in /backups"
+                    exit 1
+                  fi
+                  echo "📤 Uploading ${LATEST} to s3://${BACKUP_S3_BUCKET}/deployhub-backups/"
+                  aws s3 cp "${LATEST}" "s3://${BACKUP_S3_BUCKET}/deployhub-backups/" \
+                    --region "${AWS_REGION:-us-east-1}"
+                  echo "✅ Upload complete"
+              env:
+                - name: BACKUP_S3_BUCKET
+                  valueFrom:
+                    configMapKeyRef:
+                      name: backend-config
+                      key: backup-s3-bucket
+                      optional: true
+                - name: AWS_REGION
+                  valueFrom:
+                    configMapKeyRef:
+                      name: backend-config
+                      key: aws-region
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "128Mi"
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backups
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: mongo-backup-pvc

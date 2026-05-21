@@ -163,6 +163,7 @@ async def build_image(
     dockerfile_path: str,
     context_path: str,
     on_line: Optional[Callable[[str], Coroutine]] = None,
+    timeout_seconds: int | None = None,
 ) -> Dict[str, str]:
     """
     Async wrapper around the synchronous BuildKit build.
@@ -172,12 +173,24 @@ async def build_image(
       dockerfile_path – absolute path to the Dockerfile
       context_path    – absolute path to the build context directory
       on_line         – optional async callback called once with the full log blob
+      timeout_seconds – build timeout (defaults to settings.buildkit_timeout_seconds)
     """
+    effective_timeout = timeout_seconds or settings.buildkit_timeout_seconds
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(
-        None,
-        partial(_build_image_sync, image_tag, dockerfile_path, context_path),
-    )
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                partial(_build_image_sync, image_tag, dockerfile_path, context_path),
+            ),
+            timeout=effective_timeout,
+        )
+    except asyncio.TimeoutError:
+        result = {
+            "status": "error",
+            "image": image_tag,
+            "logs": f"BuildKit build timed out after {effective_timeout}s",
+        }
 
     if on_line and result.get("logs"):
         await on_line(result["logs"])

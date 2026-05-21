@@ -8,6 +8,16 @@ ProjectStatus = Literal["created", "queued", "building", "running", "stopped", "
 ProjectType = Literal["node", "python", "static", "unknown"]
 
 
+class DeploymentRecord(BaseModel):
+    """Single entry in a project's deployment history."""
+    timestamp: datetime
+    action: str
+    status: Literal["success", "failed", "rolled_back"]
+    image_tag: str | None = None
+    duration_seconds: float | None = None
+    error: str | None = None
+
+
 class ProjectCreate(BaseModel):
     repo_url: HttpUrl
     context_path: str = ""
@@ -30,6 +40,7 @@ class ProjectRecord(BaseModel):
     repo_path: str | None = None
     dockerfile_path: str | None = None
     image_tag: str | None = None
+    previous_image_tag: str | None = None
     container_id: str | None = None
     container_name: str | None = None
     assigned_port: int | None = None
@@ -39,6 +50,8 @@ class ProjectRecord(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_deployed_at: datetime | None = None
+    env_vars: dict[str, str] = Field(default_factory=dict)
+    deployment_history: list[DeploymentRecord] = Field(default_factory=list)
 
 
 class ProjectSummary(BaseModel):
@@ -53,6 +66,7 @@ class ProjectSummary(BaseModel):
     last_error: str | None
     container_id: str | None
     image_tag: str | None
+    previous_image_tag: str | None = None
     updated_at: datetime
     created_at: datetime
     last_deployed_at: datetime | None
@@ -64,6 +78,7 @@ class ProjectDetail(ProjectSummary):
     repo_path: str | None
     dockerfile_path: str | None
     container_name: str | None
+    deployment_history: list[DeploymentRecord] = Field(default_factory=list)
 
 
 class ProjectActionResponse(BaseModel):

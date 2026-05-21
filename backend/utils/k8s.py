@@ -94,7 +94,6 @@ def _delete_pod_sync(name: str) -> dict:
         for _ in range(10):
             try:
                 v1.read_namespaced_service(name=name, namespace=namespace)
-                import time
                 time.sleep(0.5)
             except ApiException as e:
                 if e.status == 404:

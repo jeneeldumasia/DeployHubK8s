@@ -21,7 +21,17 @@ async def connect_to_mongo() -> None:
     client = AsyncIOMotorClient(settings.mongo_uri)
     database = client[settings.mongo_db_name]
     await database.command("ping")
-    await get_projects_collection().create_index("normalized_repo_url", unique=True)
+
+    # Compound unique index — prevents duplicate (repo + context_path) pairs.
+    # Drop the old single-field index if it exists (idempotent).
+    try:
+        await get_projects_collection().drop_index("normalized_repo_url_1")
+    except Exception:
+        pass
+    await get_projects_collection().create_index(
+        [("normalized_repo_url", 1), ("context_path", 1)],
+        unique=True,
+    )
     await get_projects_collection().create_index("status")
     await get_projects_collection().create_index("created_at")
     await get_projects_collection().create_index("updated_at")
@@ -47,7 +57,6 @@ def get_projects_collection() -> AsyncIOMotorCollection:
 
 def get_object_id(project_id: str):
     from bson import ObjectId
-
     if not ObjectId.is_valid(project_id):
         return None
     return ObjectId(project_id)
@@ -66,7 +75,9 @@ async def get_project_by_id(project_id: str) -> dict[str, Any] | None:
 
 
 async def get_project_by_url_and_path(normalized_repo_url: str, context_path: str) -> dict[str, Any] | None:
-    return await get_projects_collection().find_one({"normalized_repo_url": normalized_repo_url, "context_path": context_path})
+    return await get_projects_collection().find_one(
+        {"normalized_repo_url": normalized_repo_url, "context_path": context_path}
+    )
 
 
 async def get_project_by_normalized_repo_url(normalized_repo_url: str) -> dict[str, Any] | None:
@@ -88,6 +99,25 @@ async def append_build_log(project_id: str, line: str) -> None:
     await get_projects_collection().update_one(
         {"_id": object_id},
         {"$push": {"build_logs": line}, "$set": {"updated_at": utc_now()}},
+    )
+
+
+async def append_deployment_history(project_id: str, entry: dict[str, Any]) -> None:
+    """Push a deployment record into the project's history array."""
+    object_id = get_object_id(project_id)
+    if object_id is None:
+        raise ValueError("Invalid project id")
+    await get_projects_collection().update_one(
+        {"_id": object_id},
+        {
+            "$push": {
+                "deployment_history": {
+                    "$each": [entry],
+                    "$slice": -50,   # keep last 50 deployments
+                }
+            },
+            "$set": {"updated_at": utc_now()},
+        },
     )
 
 

@@ -114,13 +114,19 @@ spec:
                 configMapKeyRef:
                   name: backend-config
                   key: aws-region
+            - name: GITHUB_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: github-webhook-secret
+                  optional: true
           resources:
             requests:
               cpu: "250m"
-              memory: "256Mi"
+              memory: "512Mi"
             limits:
-              cpu: "1000m"
-              memory: "1Gi"
+              cpu: "2000m"
+              memory: "2Gi"
           livenessProbe:
             httpGet:
               path: /health
@@ -161,3 +167,17 @@ spec:
       targetPort: 8000
       nodePort: 3081
   type: NodePort   # works on both k3s and EKS (ALB controller ignores type)
+
+---
+# Pod Disruption Budget — ensures at least 1 backend pod stays up during
+# node drains and cluster maintenance.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-pdb
+  namespace: deployhub
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backend

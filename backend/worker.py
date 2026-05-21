@@ -5,12 +5,14 @@ import aiohttp
 from datetime import UTC, datetime
 from pathlib import Path
 
-from database import append_build_log, get_project_by_id, update_project, utc_now
+from database import append_build_log, append_deployment_history, get_project_by_id, update_project, utc_now
 from observability import (
+    deployhub_build_duration_seconds,
     deployhub_deployment_duration_seconds,
     deployhub_deployment_failures_total,
     deployhub_deployment_success_total,
     deployhub_health_check_failures_total,
+    deployhub_pod_runtime_seconds,
     log_event,
 )
 from utils.detector import detect_project_type
@@ -119,8 +121,7 @@ class DeploymentWorker:
             await record_log("Cloning or updating repository")
             repo_path = await clone_or_update_repo(project_id, project["normalized_repo_url"])
             await update_project(project_id, {"repo_path": str(repo_path)})
-            await record_log(f"Repository ready at {repo_path}")
-            
+            await record_log(f"Repository ready at {repo_path}")            
             context_path = project.get("context_path") or ""
             build_context = repo_path / context_path
             
@@ -272,20 +273,77 @@ class DeploymentWorker:
                     "service_url": service_url,
                     "container_id": container_id,
                     "last_deployed_at": utc_now(),
+                    # Track previous image for rollback
+                    "previous_image_tag": project.get("image_tag"),
                 },
             )
             await record_log(f"App deployed successfully on {service_url}")
-            deployhub_deployment_duration_seconds.labels(action=action).observe(
-                (datetime.now(UTC) - started_at).total_seconds()
-            )
+            duration = (datetime.now(UTC) - started_at).total_seconds()
+            deployhub_deployment_duration_seconds.labels(action=action).observe(duration)
             deployhub_deployment_success_total.labels(action=action).inc()
+            # Cost tracking — record runtime start
+            deployhub_pod_runtime_seconds.labels(project_id=project_id).inc(0)
             log_event("deployment_success", project_id=project_id, service_url=service_url)
+            # Append to deployment history
+            await append_deployment_history(project_id, {
+                "timestamp": utc_now(),
+                "action": action,
+                "status": "success",
+                "image_tag": image_tag,
+                "duration_seconds": round(duration, 1),
+                "error": None,
+            })
 
         except Exception as exc:
             await record_log(f"Deployment failed: {exc}")
-            await update_project(project_id, {"status": "failed", "last_error": self._summarize_error(exc)})
+            duration = (datetime.now(UTC) - started_at).total_seconds()
             deployhub_deployment_failures_total.labels(phase="deploy").inc()
             log_event("deployment_failed", project_id=project_id, error=self._summarize_error(exc), action=action)
+
+            # Record failure in history
+            await append_deployment_history(project_id, {
+                "timestamp": utc_now(),
+                "action": action,
+                "status": "failed",
+                "image_tag": image_tag,
+                "duration_seconds": round(duration, 1),
+                "error": self._summarize_error(exc),
+            })
+
+            # Attempt rollback on redeploy if a previous working image exists
+            previous_image = project.get("image_tag")  # image before this deploy attempt
+            if action == "redeploy" and previous_image and self.deployment_mode == "k8s":
+                await record_log(f"🔄 Attempting rollback to previous image: {previous_image}")
+                try:
+                    rollback_port = project.get("assigned_port")
+                    if rollback_port:
+                        rb_result = await create_pod(
+                            name=container_name,
+                            image=previous_image,
+                            port=self._default_container_port(project.get("project_type", "unknown")),
+                            node_port=rollback_port,
+                            env_vars=project.get("env_vars", {}),
+                        )
+                        if rb_result["status"] == "success":
+                            await update_project(project_id, {
+                                "status": "running",
+                                "last_error": f"Rolled back: {self._summarize_error(exc)}",
+                            })
+                            await record_log("✅ Rollback successful — previous version restored")
+                            await append_deployment_history(project_id, {
+                                "timestamp": utc_now(),
+                                "action": "rollback",
+                                "status": "success",
+                                "image_tag": previous_image,
+                                "duration_seconds": None,
+                                "error": None,
+                            })
+                            log_event("deployment_rolled_back", project_id=project_id, image=previous_image)
+                            return
+                except Exception as rb_exc:
+                    await record_log(f"❌ Rollback also failed: {rb_exc}")
+
+            await update_project(project_id, {"status": "failed", "last_error": self._summarize_error(exc)})
 
     async def stop_project_resources(self, project: dict | None) -> None:
         if not project:
@@ -428,13 +486,12 @@ class DeploymentWorker:
             # Detect common system dependencies
             requirements_content = ""
             if metadata.get("has_requirements_txt"):
-                # Try to read requirements.txt to detect special needs
                 try:
                     req_path = repo_path / "requirements.txt"
                     if req_path.exists():
                         requirements_content = req_path.read_text().lower()
-                except:
-                    pass
+                except (OSError, IOError, UnicodeDecodeError) as e:
+                    await record_log(f"⚠️ Could not read requirements.txt: {e}")
 
             # Smart detection logic
             if "pytesseract" in requirements_content or "tesseract" in requirements_content:
@@ -517,12 +574,12 @@ class DeploymentWorker:
         pod_ready_timeout: int = 120,
         http_timeout: int = 60,
         http_retries: int = 10,
-        http_retry_delay: float = 5.0,
+        http_initial_delay: float = 1.0,
     ) -> None:
         """
-        Two-stage post-deployment health check:
+        Two-stage post-deployment health check with exponential backoff:
           1. Wait for the K8s pod to reach Running+Ready state.
-          2. Probe the app via HTTP on its NodePort.
+          2. Probe the app via HTTP — retries with exponential backoff (1s, 1.5s, 2.25s…).
         Raises RuntimeError on failure so the caller can trigger rollback.
         """
         await record_log("⏳ Waiting for pod to reach Running state...")
@@ -534,17 +591,18 @@ class DeploymentWorker:
 
         await record_log("✅ Pod is Running. Probing HTTP endpoint...")
 
-        # Derive the NodePort URL from the public base host
         base_host = settings.public_base_url.replace("http://", "").replace("https://", "").split(":")[0]
         probe_url = f"http://{base_host}:{node_port}/"
 
         last_error: str = "no attempts made"
         timeout = aiohttp.ClientTimeout(total=10)
+        retry_delay = http_initial_delay
+        max_delay = 30.0
+
         for attempt in range(1, http_retries + 1):
             try:
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.get(probe_url, allow_redirects=True) as resp:
-                        # Accept any non-5xx response as "alive"
                         if resp.status < 500:
                             await record_log(f"✅ Health check passed (HTTP {resp.status}) on attempt {attempt}")
                             return
@@ -553,8 +611,12 @@ class DeploymentWorker:
                 last_error = str(exc)
 
             if attempt < http_retries:
-                await record_log(f"⏳ Health check attempt {attempt}/{http_retries} failed ({last_error}), retrying in {http_retry_delay}s...")
-                await asyncio.sleep(http_retry_delay)
+                await record_log(
+                    f"⏳ Health check attempt {attempt}/{http_retries} failed ({last_error}), "
+                    f"retrying in {retry_delay:.1f}s..."
+                )
+                await asyncio.sleep(retry_delay)
+                retry_delay = min(retry_delay * 1.5, max_delay)  # exponential backoff
 
         deployhub_health_check_failures_total.labels(reason="http_probe_failed").inc()
         raise RuntimeError(f"App did not respond after {http_retries} attempts. Last error: {last_error}")

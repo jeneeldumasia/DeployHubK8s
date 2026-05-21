@@ -28,22 +28,25 @@ async def _stream_command(
 
     async def read_output() -> None:
         pending = ""
-        while True:
-            chunk = await process.stdout.read(4096)
-            if not chunk:
-                break
-            pending += chunk.decode("utf-8", errors="replace")
-            while "\n" in pending:
-                line, pending = pending.split("\n", 1)
-                clean_line = line.rstrip()
-                if clean_line:
-                    collected_output.append(clean_line)
-                    await on_line(clean_line)
+        try:
+            while True:
+                chunk = await process.stdout.read(4096)
+                if not chunk:
+                    break
+                pending += chunk.decode("utf-8", errors="replace")
+                while "\n" in pending:
+                    line, pending = pending.split("\n", 1)
+                    clean_line = line.rstrip()
+                    if clean_line:
+                        collected_output.append(clean_line)
+                        await on_line(clean_line)
 
-        trailing = pending.rstrip()
-        if trailing:
-            collected_output.append(trailing)
-            await on_line(trailing)
+            trailing = pending.rstrip()
+            if trailing:
+                collected_output.append(trailing)
+                await on_line(trailing)
+        except asyncio.CancelledError:
+            pass  # graceful cancellation during timeout
 
     output_task = asyncio.create_task(read_output())
 
@@ -52,10 +55,17 @@ async def _stream_command(
     except asyncio.TimeoutError as exc:
         process.kill()
         await process.wait()
-        await output_task
+        try:
+            await asyncio.wait_for(output_task, timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            output_task.cancel()
         raise DockerError("Docker command timed out") from exc
 
-    await output_task
+    try:
+        await asyncio.wait_for(output_task, timeout=5.0)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        output_task.cancel()
+
     return process.returncode, collected_output
 
 

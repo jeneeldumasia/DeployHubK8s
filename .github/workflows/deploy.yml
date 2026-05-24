@@ -266,13 +266,13 @@ jobs:
           chmod 600 ~/.ssh/deployhub
 
       - name: Provision k3s EC2 with Terraform
-          id: tf
-          working-directory: terraform/environments/k3s
-          run: |
-            # Account-scoped state key — each AWS account gets its own clean state
-            terraform init -input=false \
-              -backend-config="bucket=deployhub-tfstate-${{ needs.build-and-push.outputs.account-id }}" \
-              -backend-config="key=environments/k3s/${{ needs.build-and-push.outputs.account-id }}/terraform.tfstate"
+        id: tf
+        working-directory: terraform/environments/k3s
+        run: |
+          # Account-scoped state key — each AWS account gets its own clean state
+          terraform init -input=false \
+            -backend-config="bucket=deployhub-tfstate-${{ needs.build-and-push.outputs.account-id }}" \
+            -backend-config="key=environments/k3s/${{ needs.build-and-push.outputs.account-id }}/terraform.tfstate"
 
           terraform apply -auto-approve -input=false
 

@@ -11,6 +11,7 @@ const ITEMS = [
   { id: "projects",   label: "Projects",   icon: "◫" },
   { id: "logs",       label: "Logs",       icon: "≡" },
   { id: "monitoring", label: "Monitoring", icon: "◎" },
+  { id: "info",       label: "Guide",      icon: "ℹ" },
   { id: "settings",   label: "Settings",   icon: "⚙" },
 ];
 

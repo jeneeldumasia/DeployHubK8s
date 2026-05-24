@@ -34,6 +34,12 @@ def apply_deployhub_config(project_updates: dict[str, Any], config: dict[str, An
         project_updates["health_path"] = str(health_path)
     if build_context := config.get("buildContext"):
         project_updates["context_path"] = str(build_context).strip("./")
+    if install_command := config.get("installCommand"):
+        project_updates["install_command"] = str(install_command)
+    if build_command := config.get("buildCommand"):
+        project_updates["build_command"] = str(build_command)
+    if start_command := config.get("startCommand"):
+        project_updates["start_command"] = str(start_command)
     if env := config.get("env"):
         if isinstance(env, dict):
             merged = dict(project_updates.get("env_vars") or {})

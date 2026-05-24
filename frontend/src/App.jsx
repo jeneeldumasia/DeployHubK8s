@@ -4,6 +4,7 @@ import ProjectsPage   from "./pages/ProjectsPage";
 import LogsPage       from "./pages/LogsPage";
 import SettingsPage   from "./pages/SettingsPage";
 import MonitoringPage from "./pages/MonitoringPage";
+import InfoPage       from "./pages/InfoPage";
 import RadialNav      from "./RadialNav";
 
 const apiBase = "/api";
@@ -298,6 +299,10 @@ export default function App() {
 
         {page === "monitoring" && (
           <MonitoringPage projects={projects} />
+        )}
+
+        {page === "info" && (
+          <InfoPage />
         )}
       </main>
 

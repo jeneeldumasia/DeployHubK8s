@@ -133,7 +133,7 @@ class DeploymentWorker:
             if dh_config:
                 await record_log("Applying deployhub.yml overrides")
                 overrides = apply_deployhub_config({}, dh_config)
-                persist = {k: v for k, v in overrides.items() if k in ("env_vars", "health_path", "context_path")}
+                persist = {k: v for k, v in overrides.items() if k in ("env_vars", "health_path", "context_path", "install_command", "build_command", "start_command")}
                 if persist:
                     await update_project(project_id, persist)
                     project = await get_project_by_id(project_id) or project
@@ -147,7 +147,7 @@ class DeploymentWorker:
 
             # 3. Build & Deploy
             dockerfile_path = await self._resolve_dockerfile(
-                project_id, build_context, project_type, metadata, record_log
+                project_id, build_context, project_type, metadata, project, record_log
             )
             await update_project(project_id, {"dockerfile_path": str(dockerfile_path)})
             if dockerfile_path.name == "Dockerfile":
@@ -470,7 +470,7 @@ class DeploymentWorker:
         sanitized = "".join(c if c.isalnum() or c == "-" else "-" for c in slug)
         return sanitized.strip("-")
 
-    async def _resolve_dockerfile(self, project_id: str, repo_path: Path, project_type: str, metadata: dict, record_log) -> Path:
+    async def _resolve_dockerfile(self, project_id: str, repo_path: Path, project_type: str, metadata: dict, project: dict, record_log) -> Path:
         existing_dockerfile = repo_path / "Dockerfile"
         if existing_dockerfile.exists():
             return existing_dockerfile
@@ -478,14 +478,16 @@ class DeploymentWorker:
         generated_dir = self.generated_dockerfile_root / project_id
         generated_dir.mkdir(parents=True, exist_ok=True)
         dockerfile_path = generated_dir / "Dockerfile.generated"
-        dockerfile_content = await self._generated_dockerfile_contents(project_type, metadata, repo_path, record_log)
+        dockerfile_content = await self._generated_dockerfile_contents(project_type, metadata, repo_path, project, record_log)
         dockerfile_path.write_text(dockerfile_content, encoding="utf-8")
         return dockerfile_path
 
-    async def _generated_dockerfile_contents(self, project_type: str, metadata: dict, repo_path: Path, record_log) -> str:
+    async def _generated_dockerfile_contents(self, project_type: str, metadata: dict, repo_path: Path, project: dict, record_log) -> str:
         if project_type == "node":
             scripts = metadata.get("node_scripts", {})
-            if "start" in scripts:
+            if project.get("start_command"):
+                command = project["start_command"]
+            elif "start" in scripts:
                 command = "npm run start"
             elif "dev" in scripts:
                 command = "npm run dev -- --host 0.0.0.0 --port ${PORT}"
@@ -499,7 +501,9 @@ class DeploymentWorker:
                     raise RuntimeError("No supported Node start command found. Add a Dockerfile or define start/dev scripts.")
 
             # Use the lock file that actually exists
-            if metadata.get("has_yarn_lock"):
+            if project.get("install_command"):
+                install_command = project["install_command"]
+            elif metadata.get("has_yarn_lock"):
                 install_command = "yarn install --frozen-lockfile"
                 build_command = "yarn build"
             elif metadata.get("has_pnpm_lock"):
@@ -512,13 +516,16 @@ class DeploymentWorker:
                 install_command = "npm install"
                 build_command = "npm run build"
 
+            if project.get("build_command"):
+                build_command = project["build_command"]
+
             dockerfile_lines = [
                 "FROM node:20-alpine",
                 "WORKDIR /app",
                 "COPY . .",
                 f"RUN {install_command}",
             ]
-            if "build" in scripts:
+            if project.get("build_command") or "build" in scripts:
                 dockerfile_lines.append(f"RUN {build_command}")
 
             dockerfile_lines.extend(

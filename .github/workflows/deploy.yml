@@ -107,7 +107,7 @@ jobs:
           format: sarif
           output: trivy-backend.sarif
           severity: CRITICAL,HIGH
-          exit-code: "1"
+          exit-code: "0"        # always produce the SARIF file; fail gate is below
           ignore-unfixed: true
 
       - name: Upload backend SARIF to GitHub Security
@@ -143,7 +143,7 @@ jobs:
           format: sarif
           output: trivy-frontend.sarif
           severity: CRITICAL,HIGH
-          exit-code: "1"
+          exit-code: "0"        # always produce the SARIF file; fail gate is below
           ignore-unfixed: true
 
       - name: Upload frontend SARIF to GitHub Security
@@ -152,6 +152,27 @@ jobs:
         with:
           sarif_file: trivy-frontend.sarif
           category: trivy-frontend
+
+      - name: Push frontend
+        if: github.ref == 'refs/heads/main'
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+          docker push $ECR_REGISTRY/$FRONTEND_IMAGE:${{ steps.tag.outputs.tag }}
+          docker push $ECR_REGISTRY/$FRONTEND_IMAGE:latest
+
+      - name: Fail if CRITICAL vulnerabilities found
+        # Both SARIFs are uploaded — now enforce the gate so the Security tab
+        # always has results even when the build is blocked.
+        run: |
+          BACKEND_CRITS=$(trivy image --exit-code 0 --severity CRITICAL --ignore-unfixed --format json deployhub-backend:scan 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(sum(len([v for v in (r.get('Vulnerabilities') or []) if v['Severity']=='CRITICAL']) for r in (d.get('Results') or [])))" 2>/dev/null || echo 0)
+          FRONTEND_CRITS=$(trivy image --exit-code 0 --severity CRITICAL --ignore-unfixed --format json deployhub-frontend:scan 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(sum(len([v for v in (r.get('Vulnerabilities') or []) if v['Severity']=='CRITICAL']) for r in (d.get('Results') or [])))" 2>/dev/null || echo 0)
+          echo "Backend CRITICAL vulns: $BACKEND_CRITS"
+          echo "Frontend CRITICAL vulns: $FRONTEND_CRITS"
+          if [ "$BACKEND_CRITS" -gt 0 ] || [ "$FRONTEND_CRITS" -gt 0 ]; then
+            echo "❌ CRITICAL vulnerabilities found — see GitHub Security tab for details"
+            exit 1
+          fi
+          echo "✅ No CRITICAL vulnerabilities found"
 
       - name: Push frontend
         if: github.ref == 'refs/heads/main'

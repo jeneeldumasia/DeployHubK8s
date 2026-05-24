@@ -364,11 +364,9 @@ jobs:
             echo "Cloudflare tunnel credentials applied"
           else
             echo "CLOUDFLARE_TUNNEL_ID / CLOUDFLARE_TUNNEL_CREDENTIALS not set — skipping tunnel"
-            # Remove cloudflared manifest so kubectl apply doesn't fail on missing secret
-            rm -f /home/ubuntu/k8s_deploy/cloudflared.yaml
+            rm -f /home/ubuntu/k8s_deploy/overlays/k3s/cloudflared.yaml
+            sed -i '/cloudflared.yaml/d' /home/ubuntu/k8s_deploy/overlays/k3s/kustomization.yaml
           fi
-
-          kubectl apply -f /home/ubuntu/k8s_deploy/namespace.yaml
 
           # If MongoDB deployment exists, check if auth is failing due to an uninitialized data volume
           if kubectl get deployment mongodb -n deployhub &>/dev/null; then

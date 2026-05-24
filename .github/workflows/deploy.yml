@@ -48,6 +48,8 @@ jobs:
   build-and-push:
     name: Build & Push to ECR
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # required for SARIF upload to GitHub Security tab
     outputs:
       image-tag: ${{ steps.tag.outputs.tag }}
       ecr-registry: ${{ steps.resolve.outputs.ecr_registry }}
@@ -97,15 +99,22 @@ jobs:
             --tag $ECR_REGISTRY/$BACKEND_IMAGE:latest \
             ./backend
 
-      - name: Scan backend (Trivy)
-        run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.69.3
-          trivy image \
-            --format table \
-            --exit-code 0 \
-            --severity CRITICAL,HIGH \
-            --ignore-unfixed \
-            $ECR_REGISTRY/$BACKEND_IMAGE:${{ steps.tag.outputs.tag }}
+      - name: Scan backend (Trivy → SARIF)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.tag.outputs.tag }}
+          format: sarif
+          output: trivy-backend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload backend SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-backend.sarif
+          category: trivy-backend
 
       - name: Push backend
         if: github.ref == 'refs/heads/main'
@@ -117,18 +126,30 @@ jobs:
       - name: Build frontend
         run: |
           docker build \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --label "org.opencontainers.image.title=deployhub-frontend" \
             --tag $ECR_REGISTRY/$FRONTEND_IMAGE:${{ steps.tag.outputs.tag }} \
             --tag $ECR_REGISTRY/$FRONTEND_IMAGE:latest \
             ./frontend
 
-      - name: Scan frontend (Trivy)
-        run: |
-          trivy image \
-            --format table \
-            --exit-code 0 \
-            --severity CRITICAL,HIGH \
-            --ignore-unfixed \
-            $ECR_REGISTRY/$FRONTEND_IMAGE:${{ steps.tag.outputs.tag }}
+      - name: Scan frontend (Trivy → SARIF)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tag.outputs.tag }}
+          format: sarif
+          output: trivy-frontend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Upload frontend SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-frontend.sarif
+          category: trivy-frontend
 
       - name: Push frontend
         if: github.ref == 'refs/heads/main'

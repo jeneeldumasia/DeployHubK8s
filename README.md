@@ -1,141 +1,141 @@
 # DeployHub
 
-A self-hosted PaaS that automatically builds and deploys public GitHub repositories to Kubernetes. Submit a repo URL — DeployHub clones it, detects the framework, generates a Dockerfile if needed, builds the image with BuildKit, pushes to ECR, and deploys it to k3s with a live URL. Nothing is mocked.
+![kubernetes](https://img.shields.io/badge/kubernetes-k3s-326CE5?logo=kubernetes&logoColor=white)
+![terraform](https://img.shields.io/badge/infra-terraform-7B42BC?logo=terraform&logoColor=white)
+![aws](https://img.shields.io/badge/cloud-aws-FF9900?logo=amazonaws&logoColor=white)
+![fastapi](https://img.shields.io/badge/backend-fastapi-009688?logo=fastapi&logoColor=white)
+![python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)
+![ci-cd](https://img.shields.io/badge/ci--cd-github_actions-2088FF?logo=githubactions&logoColor=white)
 
-**Live:** `http://3.95.33.38:3080` &nbsp;|&nbsp; **API:** `http://3.95.33.38:3081` &nbsp;|&nbsp; **Grafana:** `http://3.95.33.38:3091`
+**A self-hosted PaaS that takes a GitHub URL and produces a live HTTPS endpoint — zero config, zero Dockerfile required.**
+
+Demo: [watch 3-min walkthrough](#) &nbsp;|&nbsp; Grafana: [screenshot](#)
 
 ---
 
 ## Architecture
 
-```
-                    jeneeldumasia.codes (Route 53) [Phase 2]
-                           │
-              ┌────────────▼────────────┐
-              │   AWS Application LB    │
-              │   (internet-facing)     │
-              └──┬──────────────────┬───┘
-                 │                  │
-         /  /api │                  │ /grafana
-  ┌──────▼───────┴──┐    ┌──────────▼────────┐
-  │   EKS Cluster   │    │   ECS Fargate      │
-  │   (2 AZs, HA)   │    │   (monitoring)     │
-  │                 │    │                    │
-  │ ns: deployhub   │    │  • Prometheus      │
-  │  • frontend     │    │  • Grafana         │
-  │  • backend      │◄───│  • Loki            │
-  │  • buildkit     │    │  (scrapes /metrics)│
-  │  • mongodb      │    └────────────────────┘
-  │                 │
-  │ ns: deployhub-  │
-  │ apps            │
-  │  • user pods    │
-  └────────┬────────┘
-           │ push/pull
-      ┌────▼────┐
-      │   ECR   │
-      │(private)│
-      └─────────┘
+```mermaid
+flowchart TD
+    Dev["Developer\npastes GitHub URL"] --> UI["DeployHub UI\n(React + Nginx)"]
+    UI --> API["FastAPI Backend\n(async worker queue)"]
+    API --> Git["git clone / pull\n(repo cache on PVC)"]
+    Git --> Detect["Framework detector\nNode / Python / Static"]
+    Detect --> BK["BuildKit daemon\n(in-cluster, rootless)"]
+    BK --> ECR["Amazon ECR\n(private registry)"]
+    ECR --> Pod["User Pod\n(k3s NodePort)"]
+    Pod --> Ingress["Traefik Ingress\nslug.domain.com"]
 
-Infrastructure: Terraform modules (networking/eks/ecs-monitoring/ecr/dns-acm)
-CI/CD:          GitHub Actions (build → Trivy scan → ECR push → EKS deploy)
+    API --> Mongo["MongoDB\n(Motor async)"]
+    API --> Metrics["/metrics\nPrometheus scrape"]
+    Metrics --> Prom["Prometheus\n15s interval"]
+    Prom --> Grafana["Grafana\npre-built dashboard"]
+    Pod --> Promtail["Promtail DaemonSet\nlog shipping"]
+    Promtail --> Loki["Loki\n7-day retention"]
+    Loki --> Grafana
+
+    GH["GitHub push"] -->|webhook| API
+    GHA["GitHub Actions\nCI/CD"] -->|build + push| ECR
+    GHA -->|kubectl apply| Pod
+    TF["Terraform\nS3 remote state"] -->|provisions| EC2["EC2 + k3s\nor EKS cluster"]
 ```
 
 ---
 
-## Tech Stack
+## Key Engineering Decisions
 
-| Layer | Technology |
-|-------|-----------|
-| Infrastructure | AWS EC2, ECR, IAM — provisioned with **Terraform** (remote state on S3 + DynamoDB lock) |
-| Orchestration | **k3s** (lightweight Kubernetes) |
-| Build system | **BuildKit** in-cluster, images stored in **ECR** |
-| Backend | **FastAPI** (Python 3.11), async deployment queue, SSE log streaming |
-| Frontend | **React + Vite**, served by Nginx |
-| Database | **MongoDB** (Motor async driver) |
-| Observability | **Prometheus** + **Grafana** + **Loki** + **Promtail** |
-| CI/CD | **GitHub Actions** — lint, Docker build, Trivy scan, ECR push, k8s deploy |
-| Secrets | **Kubernetes Secrets** + **ConfigMap** (no hardcoded values in manifests) |
+- **BuildKit over Docker daemon** — BuildKit runs rootless inside the cluster, supports parallel layer builds, and its `--frontend dockerfile.v0` flag lets any repo's existing Dockerfile be used as-is without modification. The daemon approach would require privileged DinD containers.
+
+- **Flat ECR repo layout** — user app images are pushed as `deployhub-apps:<project-id>` tags into a single pre-created ECR repository rather than creating one repo per project. This avoids the `ecr:CreateRepository` permission that AWS restricts on lab accounts, and keeps ECR lifecycle policies simple.
+
+- **SSE over WebSocket for log streaming** — Server-Sent Events are unidirectional, HTTP/1.1 compatible, and automatically reconnect. The frontend falls back to 5-second polling if the SSE connection drops. WebSocket is used only for real-time status updates where bidirectional communication is needed.
+
+- **Terraform remote state with per-account keys** — the S3 backend key includes the AWS account ID (`environments/k3s/<account-id>/terraform.tfstate`), so the same repo works across KodeKloud lab sessions without state collisions between different account IDs.
 
 ---
 
-## Features
+## Metrics & Observability
 
-**Deployment engine**
-- Clones any public GitHub repo, detects Node / Python / static project type
-- Uses repo's own `Dockerfile` if present, otherwise generates one
-- Auto-detects system dependencies from `requirements.txt` (Tesseract, OpenCV, etc.)
-- Builds images in-cluster via BuildKit, pushes to private ECR
-- Assigns a NodePort and creates a Traefik Ingress for `<slug>.jeneeldumasia.codes`
-- GitHub webhook endpoint for auto-redeploy on push: `POST /api/webhooks/github/{id}`
+All metrics are exposed at `GET /metrics` (Prometheus format) and scraped every 15 seconds.
 
-**Reliability**
-- Post-deployment health check: polls pod readiness then HTTP-probes the app
-- Auto-rollback on failure — tears down pod + ingress, marks project `failed`
-- Liveness + readiness probes on the backend pod itself
-- HPA scales backend 1→5 replicas on CPU/memory pressure
+| Metric | Type | Description |
+|--------|------|-------------|
+| `deployhub_projects_total` | Gauge | Total projects in MongoDB |
+| `deployhub_deployments_total{action}` | Counter | Deploy / redeploy requests |
+| `deployhub_deployment_success_total{action}` | Counter | Deployments that passed health check |
+| `deployhub_deployment_failures_total{phase}` | Counter | Failed deployments by phase |
+| `deployhub_deployment_duration_seconds{action}` | Histogram | End-to-end deployment time |
+| `deployhub_active_containers` | Gauge | Running user pods |
+| `deployhub_health_check_failures_total{reason}` | Counter | Post-deploy health check failures |
+| `deployhub_pod_restarts_total{pod_name}` | Gauge | Container restart count per pod |
+| `deployhub_pod_runtime_seconds{project_id}` | Counter | Cumulative pod uptime |
+| `deployhub_build_duration_seconds{project_type}` | Histogram | BuildKit image build time |
+| `http_requests_total{method,path,status_code}` | Counter | HTTP traffic by endpoint |
+| `http_request_duration_seconds{method,path}` | Histogram | Request latency |
 
-**Observability (full triad)**
-- **Metrics** — Prometheus scrapes `/metrics` every 15s; custom counters for deployments, failures, health check failures, pod restarts, HTTP latency
-- **Logs** — Loki + Promtail collects all pod logs; backend emits structured JSON events parsed by Promtail pipeline
-- **Dashboards** — Grafana pre-provisioned with DeployHub dashboard (deployment rate, duration p50/p95, HTTP latency p95, pod restart table) and Loki log explorer
-- Alert rules for: high failure rate, health check failures, backend down, pod restart loops
+Grafana is pre-provisioned with a DeployHub dashboard (deployment rate, duration p50/p95, HTTP latency p95, pod restart table) and Loki log explorer. Alert rules fire on: backend down, high failure rate, health check failures, pod restart loops.
 
-**CI/CD pipeline**
+---
 
-`ci.yml` — runs on every PR:
-- Ruff lint (backend)
-- `npm run build` (frontend)
-- Docker build for both images (layer-cached)
-- `terraform fmt -check` + `terraform validate`
+## CI/CD Pipeline
 
-`deploy.yml` — runs on push to `main`:
-- Build + tag images with short commit SHA
-- Trivy vulnerability scan (CRITICAL/HIGH)
-- Push to ECR
-- Read live EC2 IP from Terraform remote state (S3)
-- Render k8s manifests + secrets via `envsubst`
-- Deploy to EC2 via SSH, `kubectl apply`
-- `kubectl rollout status` gate
-- Smoke test `/health` with retries
-- GitHub Step Summary with all URLs
+```
+Pull Request → ci.yml
+  ├── Ruff lint (backend)
+  ├── pytest (12 tests — detector, API, security)
+  ├── npm build (frontend)
+  ├── Docker build (both images, layer-cached via GHA cache)
+  ├── Trivy SARIF scan → GitHub Security tab
+  └── terraform fmt + validate
+
+Push to main → deploy.yml
+  ├── Build images with OCI provenance labels
+  │     org.opencontainers.image.revision = $GITHUB_SHA
+  ├── Trivy SARIF scan (exit-code 1 on CRITICAL/HIGH)
+  ├── Push to ECR (tagged sha-<7chars> + latest)
+  ├── terraform apply (idempotent — provisions EC2 if missing)
+  ├── envsubst → render k8s manifests with real secrets
+  ├── kubectl apply + rollout status gate (300s timeout)
+  ├── smoke_test.sh — 6 endpoint checks with retry
+  └── GitHub Step Summary with all URLs
+```
 
 ---
 
 ## Repository Structure
 
 ```
-├── backend/                  FastAPI app, deployment worker, K8s/BuildKit utils
-├── frontend/                 React + Vite dashboard
-├── k8s_deploy/               Kubernetes manifests (works on both k3s and EKS)
-│   ├── namespace.yaml
-│   ├── backend.yaml          Deployment, Service, RBAC, PVC, IRSA annotation
-│   ├── frontend.yaml
-│   ├── mongo.yaml
-│   ├── buildkitd.yaml
-│   ├── ingress.yaml          ALB Ingress (EKS) / Traefik Ingress (k3s)
-│   ├── monitoring.yaml       Prometheus + Grafana (k3s mode)
-│   ├── logging.yaml          Loki + Promtail (k3s mode)
-│   ├── hpa.yaml              HorizontalPodAutoscaler
-│   └── secrets.yaml          Template — real values injected at deploy time
+├── backend/
+│   ├── main.py               FastAPI app, rate limiting, WebSocket, SSE
+│   ├── worker.py             Async deployment queue, rollback, history
+│   ├── database.py           Motor async MongoDB, compound indexes
+│   ├── observability.py      12 Prometheus metrics + structured JSON logging
+│   ├── security.py           HMAC-SHA256 webhook signature verification
+│   └── utils/
+│       ├── detector.py       Framework detection (Node/Python/static)
+│       ├── buildkit.py       BuildKit async wrapper with ECR auth
+│       ├── k8s.py            Kubernetes Python SDK wrappers
+│       └── analyzer.py       Multi-service monorepo detection
+├── frontend/                 React + Vite — 5 pages, radial nav, dark mode
+├── k8s_deploy/               Kubernetes manifests (k3s + EKS compatible)
+│   ├── backend.yaml          Deployment, RBAC, PVC, PodDisruptionBudget
+│   ├── monitoring.yaml       Prometheus + Grafana (pre-provisioned dashboard)
+│   ├── logging.yaml          Loki + Promtail DaemonSet
+│   ├── hpa.yaml              HPA: backend scales 1→5 on CPU/memory
+│   ├── backups.yaml          MongoDB backup CronJob (daily, S3 upload)
+│   └── secrets.yaml          Template — envsubst at deploy time
 ├── terraform/
-│   ├── modules/
-│   │   ├── networking/       VPC, subnets (public+private), NAT GW, security groups
-│   │   ├── eks/              EKS cluster, managed node groups (multi-AZ), IRSA
-│   │   ├── ecs-monitoring/   ECS Fargate — Prometheus, Grafana, Loki + EFS storage
-│   │   ├── ecr/              ECR repos with lifecycle policies + scan-on-push
-│   │   └── dns-acm/          ACM certificate + Route53 records [Phase 2]
+│   ├── modules/              networking / eks / ecs-monitoring / ecr / dns-acm
 │   ├── environments/
 │   │   ├── prod/             EKS + ECS + ALB — full production stack
-│   │   └── k3s/              Single EC2 + k3s — KodeKloud / quick demo
-│   └── bootstrap/            S3 bucket + DynamoDB table for remote state
+│   │   └── k3s/              Single EC2 + k3s — quick demo / KodeKloud
+│   └── bootstrap/            S3 + DynamoDB for remote state
 ├── .github/workflows/
-│   ├── ci.yml                PR validation (lint, build, terraform validate)
-│   └── deploy.yml            Build → scan → push → deploy (EKS or k3s)
-├── scripts/
-│   ├── deploy-eks.sh         Full EKS deploy from scratch (one command)
-│   └── apply-secrets.sh      Renders secrets.yaml for local/playground use
-└── docs/
+│   ├── ci.yml                PR: lint + pytest + Trivy SARIF + terraform validate
+│   └── deploy.yml            Push: build → scan → push → deploy → smoke test
+└── scripts/
+    ├── smoke_test.sh         6-endpoint post-deploy health check
+    └── apply-secrets.sh      Local secrets rendering (no disk writes)
 ```
 
 ---
@@ -144,57 +144,26 @@ CI/CD:          GitHub Actions (build → Trivy scan → ECR push → EKS deploy
 
 ```bash
 docker compose up --build
+# UI: http://localhost:3000   API: http://localhost:8000
 ```
-
-Opens at `http://localhost:3000`. MongoDB runs automatically via Compose.
-
----
 
 ## Cloud Deployment
 
-### EKS (Production) — one command
+### k3s on EC2 (KodeKloud / quick demo)
 
 ```bash
-# Requires: AWS CLI, kubectl, helm, docker, terraform
-./scripts/deploy-eks.sh
-```
-
-This provisions everything from scratch: VPC → EKS → ECS → ALB → images → manifests → smoke test. Takes ~35-45 minutes on first run.
-
-**Access via ALB DNS** (printed at end of script):
-```
-UI:      http://<alb-dns>
-API:     http://<alb-dns>/api
-Grafana: http://<alb-dns>/grafana
-```
-
-### k3s (KodeKloud / quick demo)
-
-```bash
-# 1. Provision EC2 + ECR
 cd terraform/environments/k3s && terraform init && terraform apply
-
-# 2. Apply secrets
 ./scripts/apply-secrets.sh
-
-# 3. Deploy
-./deploy_to_aws.sh
+# Pipeline handles the rest on next push to main
 ```
 
-### Phase 2 — HTTPS + custom domain
+### EKS (full production)
 
-Once DNS is configured, add the `dns-acm` module to `terraform/environments/prod/main.tf`:
-```hcl
-module "dns_acm" {
-  source       = "../../modules/dns-acm"
-  project      = local.project
-  domain_name  = "jeneeldumasia.codes"
-  alb_dns_name = aws_lb.main.dns_name
-  alb_zone_id  = aws_lb.main.zone_id
-  tags         = local.tags
-}
+```bash
+./scripts/deploy-eks.sh
+# Provisions VPC → EKS → ECS monitoring → ALB → images → manifests
+# Takes ~35 min on first run
 ```
-Then update the ALB HTTP listener to redirect to HTTPS and add the certificate ARN.
 
 ---
 
@@ -202,26 +171,34 @@ Then update the ALB HTTP listener to redirect to HTTPS and add the certificate A
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/projects` | Add a project |
+| `POST` | `/api/projects` | Add a project (rate-limited: 20/min) |
 | `GET` | `/api/projects` | List all projects |
-| `GET` | `/api/projects/{id}` | Project detail |
+| `GET` | `/api/projects/{id}` | Project detail + deployment history |
+| `GET` | `/api/projects/{id}/history` | Last 50 deployments from MongoDB |
 | `POST` | `/api/deploy/{id}` | Queue initial deploy |
-| `POST` | `/api/redeploy/{id}` | Queue redeploy |
+| `POST` | `/api/redeploy/{id}` | Queue redeploy (auto-rollback on failure) |
 | `POST` | `/api/stop/{id}` | Stop and remove pod |
 | `DELETE` | `/api/projects/{id}` | Delete project + all resources |
-| `GET` | `/api/logs/{id}` | Build + runtime logs |
 | `GET` | `/api/logs/{id}/stream` | SSE live log stream |
 | `GET` | `/api/projects/{id}/health` | Live pod health + restart count |
-| `POST` | `/api/webhooks/github/{id}` | GitHub push webhook |
-| `GET` | `/api/system` | Cluster status |
-| `GET` | `/metrics` | Prometheus metrics |
-| `GET` | `/health` | Liveness check |
-| `GET` | `/ready` | Readiness check (MongoDB + K8s) |
+| `POST` | `/api/webhooks/github/{id}` | GitHub push webhook (HMAC verified) |
+| `GET` | `/api/system` | Cluster status (5s TTL cache) |
+| `GET` | `/api/stats` | Persistent deployment stats from MongoDB |
+| `GET` | `/metrics` | Prometheus scrape endpoint |
+| `WS` | `/ws/projects/{id}` | WebSocket real-time status updates |
 
 ---
 
-## Pending
+## What I Learned
 
-- [ ] Wildcard DNS (`*.jeneeldumasia.codes`) — waiting on fixed node IP
-- [ ] SSL via cert-manager (manifests ready once DNS is set)
-- [ ] MongoDB authentication
+- **Kubernetes pod scheduling is not instantaneous** — the health check needs to wait for `Running` phase AND container readiness before HTTP-probing. Skipping the pod readiness wait caused false rollbacks on slow image pulls. The fix was a two-stage check: `wait_for_pod_running()` then exponential-backoff HTTP probing.
+
+- **BuildKit's `--frontend` flag** lets you use any Dockerfile parser, which is how repos with their own Dockerfile are supported without modification. The generated Dockerfile path is passed via `--local dockerfile=<dir>` and `--opt filename=<name>`, keeping the build context separate from the Dockerfile location.
+
+- **Prometheus counters reset on pod restart** — deployment stats showed 0 after every backend redeploy. The fix was a `/api/stats` endpoint that aggregates from MongoDB's `deployment_history` array, which persists across restarts. Prometheus is now used only for rate/latency metrics where recency matters more than history.
+
+---
+
+## Resume Bullet
+
+*Built DeployHub, a self-hosted Kubernetes PaaS on AWS (k3s + EC2) that automatically detects, builds, and deploys any public GitHub repository — Node, Python, or static — with zero configuration. Implemented an async deployment queue in FastAPI with BuildKit for in-cluster image builds pushed to ECR, post-deployment health checks with exponential backoff and automatic rollback, SSE log streaming, and a full observability stack (Prometheus, Grafana, Loki, Promtail) with 12 custom metrics and pre-provisioned dashboards. Infrastructure is fully Terraform-managed with remote state on S3; CI/CD via GitHub Actions runs pytest, Trivy SARIF scans (results visible in GitHub Security tab), and deploys on every push to main with a smoke test gate.*

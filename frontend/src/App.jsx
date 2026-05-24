@@ -164,9 +164,16 @@ export default function App() {
         }),
       });
       if (!res.ok) { const e = await res.json(); throw new Error(e.detail || "Failed to create project"); }
+      const newProject = await res.json();
       setRepoUrl("");
       setEnvVars("");
       setDetectedServices(null);
+      
+      if (newProject && newProject.id) {
+        setSelectedProjectId(newProject.id);
+        setPage("logs");
+      }
+      
       await loadProjects();
     } catch (err) {
       setError(err.message);

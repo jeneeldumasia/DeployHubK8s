@@ -367,10 +367,17 @@ async def create_project_endpoint(request: Request, payload: ProjectCreate) -> P
         "last_deployed_at": None,
     }
     project_id = await create_project(document)
+    
+    # Automatically queue the initial deployment on creation
+    await worker.enqueue(project_id, action="deploy")
+    deployhub_deployments_total.labels(action="deploy").inc()
+    log_event("deployment_queued", project_id=project_id, action="deploy")
+
     project = await get_project_by_id(project_id)
     deployhub_projects_total.set(await count_projects())
     log_event("project_created", project_id=project_id, repo_url=str(payload.repo_url))
     return serialize_project_summary(project)
+
 
 
 @app.get("/api/projects", response_model=list[ProjectSummary])

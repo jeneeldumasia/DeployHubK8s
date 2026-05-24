@@ -155,3 +155,46 @@ async def test_deploy_calls_create_pod(tmp_path):
         mock_create_pod.assert_called_once()
         call_kwargs = mock_create_pod.call_args
         assert call_kwargs is not None, "create_pod was never called"
+
+
+@pytest.mark.asyncio
+async def test_generated_dockerfile_contents_node_build(tmp_path):
+    """
+    Test that generated Node.js Dockerfiles include the build command when
+    a 'build' script is defined in package.json.
+    """
+    from worker import DeploymentWorker
+
+    worker = DeploymentWorker(
+        public_base_url="http://1.2.3.4",
+        generated_dockerfile_root=str(tmp_path / "dockerfiles"),
+    )
+
+    # 1. With a 'build' script
+    metadata_with_build = {
+        "node_scripts": {"start": "node index.js", "build": "vite build"},
+        "has_package_lock": True,
+    }
+    dockerfile_with_build = await worker._generated_dockerfile_contents(
+        project_type="node",
+        metadata=metadata_with_build,
+        repo_path=tmp_path,
+        record_log=AsyncMock(),
+    )
+    assert "RUN npm ci" in dockerfile_with_build
+    assert "RUN npm run build" in dockerfile_with_build
+
+    # 2. Without a 'build' script
+    metadata_no_build = {
+        "node_scripts": {"start": "node index.js"},
+        "has_package_lock": True,
+    }
+    dockerfile_no_build = await worker._generated_dockerfile_contents(
+        project_type="node",
+        metadata=metadata_no_build,
+        repo_path=tmp_path,
+        record_log=AsyncMock(),
+    )
+    assert "RUN npm ci" in dockerfile_no_build
+    assert "RUN npm run build" not in dockerfile_no_build
+

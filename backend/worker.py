@@ -501,17 +501,28 @@ class DeploymentWorker:
             # Use the lock file that actually exists
             if metadata.get("has_yarn_lock"):
                 install_command = "yarn install --frozen-lockfile"
+                build_command = "yarn build"
             elif metadata.get("has_pnpm_lock"):
                 install_command = "npm install -g pnpm && pnpm install --frozen-lockfile"
+                build_command = "pnpm build"
             elif metadata.get("has_package_lock"):
                 install_command = "npm ci"
+                build_command = "npm run build"
             else:
                 install_command = "npm install"
-            return "\n".join(
+                build_command = "npm run build"
+
+            dockerfile_lines = [
+                "FROM node:20-alpine",
+                "WORKDIR /app",
+                "COPY . .",
+                f"RUN {install_command}",
+            ]
+            if "build" in scripts:
+                dockerfile_lines.append(f"RUN {build_command}")
+
+            dockerfile_lines.extend(
                 [
-                    "FROM node:20-alpine",                    "WORKDIR /app",
-                    "COPY . .",
-                    f"RUN {install_command}",
                     "ENV HOST=0.0.0.0",
                     "ENV PORT=3000",
                     "EXPOSE 3000",
@@ -519,6 +530,7 @@ class DeploymentWorker:
                     "",
                 ]
             )
+            return "\n".join(dockerfile_lines)
 
         if project_type == "python":
             install_lines = []

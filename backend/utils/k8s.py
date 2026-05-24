@@ -37,9 +37,10 @@ def _ensure_apps_namespace_sync() -> None:
             raise
 
 
-def _create_pod_sync(name: str, image: str, port: int, node_port: int = None, env_vars: dict = None) -> dict:
+def _create_deployment_sync(name: str, image: str, port: int, node_port: int = None, env_vars: dict = None) -> dict:
     _ensure_apps_namespace_sync()
     v1 = _get_k8s_client()
+    apps_v1 = client.AppsV1Api()
     namespace = _user_namespace()
 
     # Base env vars + user-supplied overrides
@@ -54,24 +55,35 @@ def _create_pod_sync(name: str, image: str, port: int, node_port: int = None, en
         base_env = [e for e in base_env if e["name"] not in env_vars]
         base_env += [{"name": k, "value": v} for k, v in env_vars.items()]
 
-    pod_manifest = {
-        "apiVersion": "v1",
-        "kind": "Pod",
+    deployment_manifest = {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
         "metadata": {
             "name": name,
             "labels": {"app": name},
         },
         "spec": {
-            "imagePullSecrets": [{"name": "ecr-private-key"}],
-            "containers": [
-                {
-                    "name": name,
-                    "image": image,
-                    "imagePullPolicy": "Always",
-                    "ports": [{"containerPort": port}],
-                    "env": base_env,
+            "replicas": 2,
+            "selector": {
+                "matchLabels": {"app": name}
+            },
+            "template": {
+                "metadata": {
+                    "labels": {"app": name}
+                },
+                "spec": {
+                    "imagePullSecrets": [{"name": "ecr-private-key"}],
+                    "containers": [
+                        {
+                            "name": name,
+                            "image": image,
+                            "imagePullPolicy": "Always",
+                            "ports": [{"containerPort": port}],
+                            "env": base_env,
+                        }
+                    ]
                 }
-            ]
+            }
         },
     }
 
@@ -95,31 +107,31 @@ def _create_pod_sync(name: str, image: str, port: int, node_port: int = None, en
     }
 
     try:
-        v1.create_namespaced_pod(namespace=namespace, body=pod_manifest)
+        apps_v1.create_namespaced_deployment(namespace=namespace, body=deployment_manifest)
     except ApiException as e:
         return {"status": "error", "error": str(e)}
 
     try:
         v1.create_namespaced_service(namespace=namespace, body=service_manifest)
     except ApiException as e:
-        # Pod was created but service failed — clean up the pod so we don't
-        # leave an orphaned pod with no service pointing at it.
+        # Deployment was created but service failed — clean up the deployment
         try:
-            v1.delete_namespaced_pod(name=name, namespace=namespace)
+            apps_v1.delete_namespaced_deployment(name=name, namespace=namespace)
         except ApiException:
             pass
-        return {"status": "error", "error": f"Service creation failed (pod cleaned up): {e}"}
+        return {"status": "error", "error": f"Service creation failed (deployment cleaned up): {e}"}
 
     return {"status": "success", "pod_name": name, "port": port}
 
 
-def _delete_pod_sync(name: str) -> dict:
+def _delete_deployment_sync(name: str) -> dict:
     if not name:
         return {"status": "success"}
     v1 = _get_k8s_client()
+    apps_v1 = client.AppsV1Api()
     namespace = _user_namespace()
     try:
-        v1.delete_namespaced_pod(name=name, namespace=namespace)
+        apps_v1.delete_namespaced_deployment(name=name, namespace=namespace)
     except ApiException:
         pass
     try:
@@ -146,24 +158,30 @@ def _check_k8s_available_sync() -> bool:
         return False
 
 
-def _count_running_deployhub_pods_sync() -> int:
+def _count_running_deployhub_deployments_sync() -> int:
     try:
-        v1 = _get_k8s_client()
-        pods = v1.list_namespaced_pod(namespace=_user_namespace())
+        apps_v1 = client.AppsV1Api()
+        deployments = apps_v1.list_namespaced_deployment(namespace=_user_namespace())
         return sum(
             1
-            for pod in pods.items
-            if pod.metadata.name.startswith("deployhub-") and pod.status.phase == "Running"
+            for d in deployments.items
+            if d.metadata.name.startswith("deployhub-") and d.status.ready_replicas
         )
     except Exception:
         return 0
 
 
-def _get_pod_logs_sync(name: str, tail: int = 100) -> list[str]:
+def _get_deployment_logs_sync(name: str, tail: int = 100) -> list[str]:
     try:
         v1 = _get_k8s_client()
+        pods = v1.list_namespaced_pod(namespace=_user_namespace(), label_selector=f"app={name}")
+        if not pods.items:
+            return []
+        
+        # Prefer a running pod, otherwise just use the first one
+        target_pod = next((p for p in pods.items if p.status.phase == "Running"), pods.items[0])
         logs = v1.read_namespaced_pod_log(
-            name=name, namespace=_user_namespace(), tail_lines=tail
+            name=target_pod.metadata.name, namespace=_user_namespace(), tail_lines=tail
         )
         return logs.splitlines() if logs else []
     except Exception:
@@ -187,14 +205,14 @@ def _get_occupied_node_ports_sync() -> list[int]:
 
 # ── Async wrappers (run blocking SDK calls in a thread pool) ──────────────────
 
-async def create_pod(name: str, image: str, port: int, node_port: int = None, env_vars: dict = None) -> dict:
+async def create_deployment(name: str, image: str, port: int, node_port: int = None, env_vars: dict = None) -> dict:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, partial(_create_pod_sync, name, image, port, node_port, env_vars))
+    return await loop.run_in_executor(None, partial(_create_deployment_sync, name, image, port, node_port, env_vars))
 
 
-async def delete_pod(name: str) -> dict:
+async def delete_deployment(name: str) -> dict:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, partial(_delete_pod_sync, name))
+    return await loop.run_in_executor(None, partial(_delete_deployment_sync, name))
 
 
 async def check_k8s_available() -> bool:
@@ -202,14 +220,14 @@ async def check_k8s_available() -> bool:
     return await loop.run_in_executor(None, _check_k8s_available_sync)
 
 
-async def count_running_deployhub_pods() -> int:
+async def count_running_deployhub_deployments() -> int:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _count_running_deployhub_pods_sync)
+    return await loop.run_in_executor(None, _count_running_deployhub_deployments_sync)
 
 
-async def get_pod_logs(name: str, tail: int = 100) -> list[str]:
+async def get_deployment_logs(name: str, tail: int = 100) -> list[str]:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, partial(_get_pod_logs_sync, name, tail))
+    return await loop.run_in_executor(None, partial(_get_deployment_logs_sync, name, tail))
 
 
 async def get_occupied_node_ports() -> list[int]:
@@ -289,60 +307,62 @@ def _delete_ingress_sync(name: str) -> dict:
         return {"status": "success"}
 
 
-def _wait_for_pod_running_sync(name: str, timeout_seconds: int = 120) -> dict:
-    """Poll until pod phase is Running or timeout is reached."""
+def _wait_for_deployment_running_sync(name: str, timeout_seconds: int = 120) -> dict:
+    """Poll until deployment has ready replicas or timeout is reached."""
+    apps_v1 = client.AppsV1Api()
     v1 = _get_k8s_client()
     namespace = _user_namespace()
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         try:
-            pod = v1.read_namespaced_pod(name=name, namespace=namespace)
-            phase = pod.status.phase
-            if phase == "Running":
-                # Also check all containers are ready
-                container_statuses = pod.status.container_statuses or []
-                all_ready = all(cs.ready for cs in container_statuses)
-                if all_ready:
-                    return {"status": "running"}
-                # Pod is Running but containers not yet ready — keep waiting
-            elif phase in ("Failed", "Unknown"):
-                # Grab last termination reason if available
-                reason = phase
+            deployment = apps_v1.read_namespaced_deployment(name=name, namespace=namespace)
+            if deployment.status.ready_replicas and deployment.status.ready_replicas > 0:
+                return {"status": "running"}
+            
+            # If not ready, check if any pod is crashing
+            pods = v1.list_namespaced_pod(namespace=namespace, label_selector=f"app={name}")
+            for pod in pods.items:
+                if pod.status.phase in ("Failed", "Unknown"):
+                    return {"status": "error", "reason": pod.status.phase}
                 container_statuses = pod.status.container_statuses or []
                 for cs in container_statuses:
-                    if cs.state and cs.state.terminated:
-                        reason = cs.state.terminated.reason or reason
-                    elif cs.state and cs.state.waiting:
-                        reason = cs.state.waiting.reason or reason
-                return {"status": "error", "reason": reason}
+                    if cs.state and cs.state.waiting and cs.state.waiting.reason in ("CrashLoopBackOff", "ErrImagePull", "ImagePullBackOff"):
+                        return {"status": "error", "reason": cs.state.waiting.reason}
+                    if cs.state and cs.state.terminated and cs.state.terminated.reason == "Error":
+                        return {"status": "error", "reason": "Container crashed"}
+                        
         except ApiException as e:
             if e.status == 404:
-                return {"status": "error", "reason": "Pod not found"}
+                return {"status": "error", "reason": "Deployment not found"}
         time.sleep(3)
-    return {"status": "error", "reason": f"Pod did not become ready within {timeout_seconds}s"}
+    return {"status": "error", "reason": f"Deployment did not become ready within {timeout_seconds}s"}
 
 
-def _get_pod_restart_count_sync(name: str) -> int:
-    """Return total restart count across all containers in a pod."""
+def _get_deployment_restart_count_sync(name: str) -> int:
+    """Return total restart count across all containers in the deployment's pods."""
     try:
         v1 = _get_k8s_client()
-        pod = v1.read_namespaced_pod(name=name, namespace=_user_namespace())
-        container_statuses = pod.status.container_statuses or []
-        return sum(cs.restart_count for cs in container_statuses)
+        pods = v1.list_namespaced_pod(namespace=_user_namespace(), label_selector=f"app={name}")
+        total_restarts = 0
+        for pod in pods.items:
+            container_statuses = pod.status.container_statuses or []
+            total_restarts += sum(cs.restart_count for cs in container_statuses)
+        return total_restarts
     except Exception:
         return 0
 
 
-def _get_all_pod_restart_counts_sync() -> dict[str, int]:
-    """Return {pod_name: restart_count} for all deployhub-managed pods."""
+def _get_all_deployment_restart_counts_sync() -> dict[str, int]:
+    """Return {deployment_name: restart_count} for all deployhub-managed deployments."""
     try:
         v1 = _get_k8s_client()
         pods = v1.list_namespaced_pod(namespace=_user_namespace())
         result = {}
         for pod in pods.items:
-            if pod.metadata.name.startswith("deployhub-"):
+            app_label = pod.metadata.labels.get("app") if pod.metadata.labels else None
+            if app_label and app_label.startswith("deployhub-"):
                 container_statuses = pod.status.container_statuses or []
-                result[pod.metadata.name] = sum(cs.restart_count for cs in container_statuses)
+                result[app_label] = result.get(app_label, 0) + sum(cs.restart_count for cs in container_statuses)
         return result
     except Exception:
         return {}
@@ -350,19 +370,19 @@ def _get_all_pod_restart_counts_sync() -> dict[str, int]:
 
 # ── New async wrappers ────────────────────────────────────────────────────────
 
-async def wait_for_pod_running(name: str, timeout_seconds: int = 120) -> dict:
+async def wait_for_deployment_running(name: str, timeout_seconds: int = 120) -> dict:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, partial(_wait_for_pod_running_sync, name, timeout_seconds))
+    return await loop.run_in_executor(None, partial(_wait_for_deployment_running_sync, name, timeout_seconds))
 
 
-async def get_pod_restart_count(name: str) -> int:
+async def get_deployment_restart_count(name: str) -> int:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, partial(_get_pod_restart_count_sync, name))
+    return await loop.run_in_executor(None, partial(_get_deployment_restart_count_sync, name))
 
 
-async def get_all_pod_restart_counts() -> dict[str, int]:
+async def get_all_deployment_restart_counts() -> dict[str, int]:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _get_all_pod_restart_counts_sync)
+    return await loop.run_in_executor(None, _get_all_deployment_restart_counts_sync)
 
 
 def _get_namespace_resources_sync(pod_name: str) -> dict:

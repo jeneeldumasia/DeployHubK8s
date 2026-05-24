@@ -31,12 +31,12 @@ from utils.git import GitError, clone_or_update_repo
 
 # Import K8s utilities
 from utils.k8s import (
-    create_pod,
-    delete_pod,
+    create_deployment,
+    delete_deployment,
     get_occupied_node_ports,
     create_ingress,
     delete_ingress,
-    wait_for_pod_running,
+    wait_for_deployment_running,
 )
 from config import settings
 
@@ -224,17 +224,24 @@ class DeploymentWorker:
                 if not assigned_port:
                     raise RuntimeError("No free NodePorts available in the configured range")
 
-                await record_log(f"Deploying Pod {container_name} with public NodePort {assigned_port}")
-                pod_result = await create_pod(
+                await record_log(f"Deploying Deployment {container_name} with public NodePort {assigned_port}")
+                
+                # 1. Start the new deployment container
+                deployment_result = await create_deployment(
                     name=container_name,
                     image=registry_image,
                     port=container_port,
                     node_port=assigned_port,
                     env_vars=project.get("env_vars", {}),
                 )
-                if pod_result["status"] == "error":
-                    raise RuntimeError(f"K8s pod creation failed: {pod_result.get('error')}")
+                if deployment_result.get("status") == "error":
+                    raise RuntimeError(f"K8s deployment creation failed: {deployment_result.get('error')}")
 
+                await record_log("Waiting for deployment to be ready...")
+                ready_result = await wait_for_deployment_running(container_name, timeout_seconds=300)
+                if ready_result.get("status") == "error":
+                    raise RuntimeError(f"Deployment failed to start: {ready_result.get('reason')}")
+                
                 container_id = container_name
 
                 # Always use the NodePort URL as the primary service URL —
@@ -263,10 +270,10 @@ class DeploymentWorker:
                         health_path=project.get("health_path") or "/",
                     )
                 except RuntimeError as health_exc:
-                    # Rollback: tear down the pod and ingress we just created
+                    # Rollback: tear down the deployment and ingress we just created
                     await record_log(f"❌ Health check failed — rolling back: {health_exc}")
                     log_event("health_check_failed", project_id=project_id, reason=str(health_exc))
-                    await delete_pod(container_name)
+                    await delete_deployment(container_name)
                     await delete_ingress(container_name)
                     raise RuntimeError(f"Post-deployment health check failed: {health_exc}") from health_exc
 
@@ -359,7 +366,7 @@ class DeploymentWorker:
                 try:
                     rollback_port = project.get("assigned_port")
                     if rollback_port:
-                        rb_result = await create_pod(
+                        rb_result = await create_deployment(
                             name=container_name,
                             image=previous_image,
                             port=self._default_container_port(project.get("project_type", "unknown")),
@@ -394,7 +401,7 @@ class DeploymentWorker:
         if self.deployment_mode == "k8s":
             # Derive the canonical name and delete once; ignore if already gone
             canonical_name = self.container_name(str(project["_id"]))
-            await delete_pod(canonical_name)
+            await delete_deployment(canonical_name)
         else:
             await remove_container(project.get("container_id"))
             await remove_container(project.get("container_name"))
@@ -421,7 +428,11 @@ class DeploymentWorker:
     async def delete_project_resources(self, project: dict) -> None:
         await self.stop_project_resources(project)
         
-        if self.deployment_mode == "docker":
+        if self.deployment_mode == "k8s":
+            canonical_name = self.container_name(str(project["_id"]))
+            await delete_deployment(canonical_name)
+            await delete_ingress(canonical_name)
+        elif self.deployment_mode == "docker":
             await remove_image(project.get("image_tag"))
 
         repo_path = project.get("repo_path")
@@ -728,7 +739,7 @@ class DeploymentWorker:
         await update_project(project_id, {"status": "building",
                                           "build_logs": [timestamped_log("Rollback started")]})
         await self.stop_project_resources(project)
-        pod_result = await create_pod(
+        pod_result = await create_deployment(
             name=container_name,
             image=rollback_image,
             port=container_port,
@@ -738,10 +749,10 @@ class DeploymentWorker:
         if pod_result.get("status") == "error":
             await update_project(project_id, {
                 "status": "failed",
-                "last_error": f"Rollback pod creation failed: {pod_result.get('error')}",
+                "last_error": f"Rollback deployment creation failed: {pod_result.get('error')}",
             })
             return
-        await wait_for_pod_running(container_name)
+        await wait_for_deployment_running(container_name)
         await self._health_check_pod(
             pod_name=container_name,
             node_port=project.get("assigned_port"),

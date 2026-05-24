@@ -60,10 +60,10 @@ from utils.ecr_cleanup import delete_project_ecr_images
 from utils.docker import check_docker_available, count_running_deployhub_containers, get_container_logs
 from utils.k8s import (
     check_k8s_available,
-    count_running_deployhub_pods,
-    get_all_pod_restart_counts,
+    count_running_deployhub_deployments,
+    get_all_deployment_restart_counts,
     get_namespace_resources,
-    get_pod_logs,
+    get_deployment_logs,
 )
 from utils.analyzer import RepoAnalyzer
 from utils.git import GitError, normalize_repo_url, clone_or_update_repo
@@ -280,7 +280,7 @@ async def get_runtime_logs(project: dict) -> list[str]:
         container_name = project.get("container_name")
         if not container_name:
             return []
-        return await get_pod_logs(container_name)
+        return await get_deployment_logs(container_name)
     container_id = project.get("container_id")
     if not container_id:
         return []
@@ -673,9 +673,9 @@ async def metrics_endpoint() -> Response:
     async def _fetch():
         deployhub_projects_total.set(await count_projects())
         if settings.deployment_mode == "k8s":
-            pod_count, restart_counts = await asyncio.gather(
-                count_running_deployhub_pods(), get_all_pod_restart_counts())
-            deployhub_active_containers.set(pod_count)
+            running_count, restart_counts = await asyncio.gather(
+                count_running_deployhub_deployments(), get_all_deployment_restart_counts())
+            deployhub_active_containers.set(running_count)
             for pod_name, count in restart_counts.items():
                 deployhub_pod_restarts_total.labels(pod_name=pod_name).set(count)
         else:
@@ -696,8 +696,8 @@ async def get_project_health_endpoint(project_id: str) -> dict:
     container_name = project.get("container_name")
     if not container_name or project.get("status") not in ("running", "failed"):
         return {"project_id": project_id, "status": project.get("status"), "pod": None}
-    from utils.k8s import get_pod_restart_count
-    restart_count = await get_pod_restart_count(container_name)
+    from utils.k8s import get_deployment_restart_count
+    restart_count = await get_deployment_restart_count(container_name)
     deployhub_pod_restarts_total.labels(pod_name=container_name).set(restart_count)
     return {
         "project_id": project_id,

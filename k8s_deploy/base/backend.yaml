@@ -58,11 +58,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app: backend
+      app: deployhub-backend
   template:
     metadata:
       labels:
-        app: backend
+        app: deployhub-backend
     spec:
       serviceAccountName: backend-sa
       imagePullSecrets:
@@ -161,7 +161,7 @@ metadata:
     # On EKS: ALB controller uses ClusterIP + pod IPs via target-type: ip
 spec:
   selector:
-    app: backend
+    app: deployhub-backend
   ports:
     - port: 8000
       targetPort: 8000
@@ -180,4 +180,4 @@ spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: backend
+      app: deployhub-backend

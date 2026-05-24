@@ -44,8 +44,15 @@ data:
     ruler:
       alertmanager_url: http://localhost:9093
 
+    chunk_store_config:
+      max_look_back_period: 168h
+
+    table_manager:
+      retention_deletes_enabled: true
+      retention_period: 168h
+
     limits_config:
-      retention_period: 168h    # 7 days
+      retention_period: 168h
 
     compactor:
       working_directory: /loki/compactor

@@ -192,6 +192,7 @@ export default function App() {
         const endpoint = {
           deploy:   `${apiBase}/deploy/${projectId}`,
           redeploy: `${apiBase}/redeploy/${projectId}`,
+          rollback: `${apiBase}/projects/${projectId}/rollback`,
           stop:     `${apiBase}/stop/${projectId}`,
         }[action];
         await parseResponse(await fetch(endpoint, { method: "POST" }));

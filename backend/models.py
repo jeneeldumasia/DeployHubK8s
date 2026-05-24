@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, HttpUrl
 
 
 ProjectStatus = Literal["created", "queued", "building", "running", "stopped", "failed", "deleting"]
-ProjectType = Literal["node", "python", "static", "unknown"]
+ProjectType = Literal["node", "python", "static", "go", "rust", "java", "ruby", "php", "unknown"]
 
 
 class DeploymentRecord(BaseModel):
@@ -23,6 +23,7 @@ class ProjectCreate(BaseModel):
     context_path: str = ""
     service_name: str | None = None
     env_vars: dict[str, str] = Field(default_factory=dict)
+    webhook_secret: str | None = None   # per-project HMAC secret for GitHub webhooks
 
 
 class ApiErrorResponse(BaseModel):
@@ -52,6 +53,11 @@ class ProjectRecord(BaseModel):
     last_deployed_at: datetime | None = None
     env_vars: dict[str, str] = Field(default_factory=dict)
     deployment_history: list[DeploymentRecord] = Field(default_factory=list)
+    webhook_secret: str | None = None         # per-project HMAC secret (server-side only)
+    webhook_secret_hash: str | None = None    # SHA-256 hash of per-project webhook secret
+    last_good_image: str | None = None        # ECR image URI of last successful deploy (for rollback)
+    health_path: str | None = None
+    container_port: int | None = None
 
 
 class ProjectSummary(BaseModel):
@@ -71,6 +77,8 @@ class ProjectSummary(BaseModel):
     created_at: datetime
     last_deployed_at: datetime | None
     env_vars: dict[str, str] = Field(default_factory=dict)
+    last_good_image: str | None = None
+    has_webhook_secret: bool = False   # True if webhook_secret_hash is set
 
 
 class ProjectDetail(ProjectSummary):
@@ -104,6 +112,8 @@ class SystemResponse(BaseModel):
     running_container_count: int
     active_deployments: int
     queued_deployments: int
+    queue_depth: int = 0
+    max_concurrent_builds: int = 3
 
 
 class HealthResponse(BaseModel):

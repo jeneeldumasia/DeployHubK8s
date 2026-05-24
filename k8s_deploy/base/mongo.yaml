@@ -13,16 +13,16 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: mongo
+  name: mongodb
   namespace: deployhub
 spec:
   selector:
     matchLabels:
-      app: mongo
+      app: mongodb
   template:
     metadata:
       labels:
-        app: mongo
+        app: mongodb
     spec:
       containers:
         - name: mongo
@@ -31,20 +31,16 @@ spec:
           ports:
             - containerPort: 27017
           env:
-            # Setting these causes MongoDB to start with auth enabled.
-            # The root user is created automatically — no init script needed.
-            # The backend connects using:
-            #   mongodb://root:<password>@mongo:27017/deployhub?authSource=admin
             - name: MONGO_INITDB_ROOT_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: mongo-credentials
-                  key: username
+                  name: deployhub-secrets
+                  key: mongo-root-user
             - name: MONGO_INITDB_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: mongo-credentials
-                  key: password
+                  name: deployhub-secrets
+                  key: mongo-root-password
           resources:
             requests:
               cpu: "100m"
@@ -81,11 +77,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: mongo
+  name: mongodb-service
   namespace: deployhub
 spec:
   selector:
-    app: mongo
+    app: mongodb
   ports:
     - port: 27017
       targetPort: 27017

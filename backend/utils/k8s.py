@@ -8,6 +8,10 @@ from kubernetes.client.rest import ApiException
 from config import settings
 
 
+def _user_namespace() -> str:
+    return settings.apps_namespace
+
+
 def _get_k8s_client() -> client.CoreV1Api:
     try:
         config.load_incluster_config()
@@ -16,9 +20,21 @@ def _get_k8s_client() -> client.CoreV1Api:
     return client.CoreV1Api()
 
 
-def _create_pod_sync(name: str, image: str, port: int, node_port: int = None, env_vars: dict = None) -> dict:
+def _ensure_apps_namespace_sync() -> None:
     v1 = _get_k8s_client()
-    namespace = settings.k8s_namespace
+    ns = _user_namespace()
+    try:
+        v1.read_namespace(ns)
+    except ApiException as e:
+        if e.status != 404:
+            raise
+        v1.create_namespace(client.V1Namespace(metadata=client.V1ObjectMeta(name=ns)))
+
+
+def _create_pod_sync(name: str, image: str, port: int, node_port: int = None, env_vars: dict = None) -> dict:
+    _ensure_apps_namespace_sync()
+    v1 = _get_k8s_client()
+    namespace = _user_namespace()
 
     # Base env vars + user-supplied overrides
     base_env = [
@@ -95,7 +111,7 @@ def _delete_pod_sync(name: str) -> dict:
     if not name:
         return {"status": "success"}
     v1 = _get_k8s_client()
-    namespace = settings.k8s_namespace
+    namespace = _user_namespace()
     try:
         v1.delete_namespaced_pod(name=name, namespace=namespace)
     except ApiException:
@@ -127,7 +143,7 @@ def _check_k8s_available_sync() -> bool:
 def _count_running_deployhub_pods_sync() -> int:
     try:
         v1 = _get_k8s_client()
-        pods = v1.list_namespaced_pod(namespace=settings.k8s_namespace)
+        pods = v1.list_namespaced_pod(namespace=_user_namespace())
         return sum(
             1
             for pod in pods.items
@@ -141,7 +157,7 @@ def _get_pod_logs_sync(name: str, tail: int = 100) -> list[str]:
     try:
         v1 = _get_k8s_client()
         logs = v1.read_namespaced_pod_log(
-            name=name, namespace=settings.k8s_namespace, tail_lines=tail
+            name=name, namespace=_user_namespace(), tail_lines=tail
         )
         return logs.splitlines() if logs else []
     except Exception:
@@ -151,7 +167,7 @@ def _get_pod_logs_sync(name: str, tail: int = 100) -> list[str]:
 def _get_occupied_node_ports_sync() -> list[int]:
     try:
         v1 = _get_k8s_client()
-        services = v1.list_namespaced_service(namespace=settings.k8s_namespace)
+        services = v1.list_namespaced_service(namespace=_user_namespace())
         ports = []
         for svc in services.items:
             if svc.spec.ports:
@@ -216,8 +232,8 @@ def _get_networking_client():
 def _create_ingress_sync(name: str, host: str, service_port: int) -> dict:
     try:
         networking_v1 = _get_networking_client()
-        namespace = settings.k8s_namespace
-        
+        namespace = _user_namespace()
+
         ingress_manifest = {
             "apiVersion": "networking.k8s.io/v1",
             "kind": "Ingress",
@@ -260,7 +276,7 @@ def _create_ingress_sync(name: str, host: str, service_port: int) -> dict:
 def _delete_ingress_sync(name: str) -> dict:
     try:
         networking_v1 = _get_networking_client()
-        namespace = settings.k8s_namespace
+        namespace = _user_namespace()
         networking_v1.delete_namespaced_ingress(name=name, namespace=namespace)
         return {"status": "success"}
     except ApiException:
@@ -270,7 +286,7 @@ def _delete_ingress_sync(name: str) -> dict:
 def _wait_for_pod_running_sync(name: str, timeout_seconds: int = 120) -> dict:
     """Poll until pod phase is Running or timeout is reached."""
     v1 = _get_k8s_client()
-    namespace = settings.k8s_namespace
+    namespace = _user_namespace()
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         try:
@@ -304,7 +320,7 @@ def _get_pod_restart_count_sync(name: str) -> int:
     """Return total restart count across all containers in a pod."""
     try:
         v1 = _get_k8s_client()
-        pod = v1.read_namespaced_pod(name=name, namespace=settings.k8s_namespace)
+        pod = v1.read_namespaced_pod(name=name, namespace=_user_namespace())
         container_statuses = pod.status.container_statuses or []
         return sum(cs.restart_count for cs in container_statuses)
     except Exception:
@@ -315,7 +331,7 @@ def _get_all_pod_restart_counts_sync() -> dict[str, int]:
     """Return {pod_name: restart_count} for all deployhub-managed pods."""
     try:
         v1 = _get_k8s_client()
-        pods = v1.list_namespaced_pod(namespace=settings.k8s_namespace)
+        pods = v1.list_namespaced_pod(namespace=_user_namespace())
         result = {}
         for pod in pods.items:
             if pod.metadata.name.startswith("deployhub-"):
@@ -341,3 +357,69 @@ async def get_pod_restart_count(name: str) -> int:
 async def get_all_pod_restart_counts() -> dict[str, int]:
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _get_all_pod_restart_counts_sync)
+
+
+def _get_namespace_resources_sync(pod_name: str) -> dict:
+    """Return current pod resource usage vs namespace quota (metrics API)."""
+    v1 = _get_k8s_client()
+    ns = _user_namespace()
+    usage: dict = {"cpu": "0", "memory": "0"}
+    try:
+        metrics = client.CustomObjectsApi()
+        pod_metrics = metrics.list_namespaced_custom_object(
+            group="metrics.k8s.io",
+            version="v1beta1",
+            namespace=ns,
+            plural="pods",
+        )
+        for item in pod_metrics.get("items", []):
+            if item["metadata"]["name"] != pod_name:
+                continue
+            cpu_total = 0
+            mem_total = 0
+            for container in item.get("containers", []):
+                cpu = container["usage"].get("cpu", "0")
+                mem = container["usage"].get("memory", "0")
+                cpu_total += _parse_cpu_quantity(cpu)
+                mem_total += _parse_memory_quantity(mem)
+            usage = {
+                "cpu": f"{cpu_total}m",
+                "memory": f"{mem_total}Mi",
+            }
+            break
+    except Exception:
+        pass
+
+    quota_hard: dict = {}
+    try:
+        quota = v1.read_namespaced_resource_quota(
+            name="deployhub-apps-quota", namespace=ns
+        )
+        quota_hard = dict(quota.status.hard or {})
+    except Exception:
+        pass
+
+    return {"usage": usage, "quota": quota_hard}
+
+
+def _parse_cpu_quantity(value: str) -> int:
+    if value.endswith("n"):
+        return int(int(value[:-1]) / 1_000_000)
+    if value.endswith("u"):
+        return int(int(value[:-1]) / 1_000)
+    if value.endswith("m"):
+        return int(value[:-1])
+    return int(float(value) * 1000)
+
+
+def _parse_memory_quantity(value: str) -> int:
+    units = {"Ki": 1024, "Mi": 1024**2, "Gi": 1024**3}
+    for suffix, mult in units.items():
+        if value.endswith(suffix):
+            return int(int(value[:-len(suffix)]) * mult / (1024**2))
+    return int(int(value) / (1024**2))
+
+
+async def get_namespace_resources(pod_name: str) -> dict:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, partial(_get_namespace_resources_sync, pod_name))

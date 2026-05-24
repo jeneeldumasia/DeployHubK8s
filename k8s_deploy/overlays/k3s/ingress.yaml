@@ -1,0 +1,72 @@
+# ── Main Ingress — routes ALB traffic to frontend and backend ─────────────────
+#
+# The AWS Load Balancer Controller watches for Ingress resources with
+# the "alb" class and provisions a real ALB target group registration.
+# On k3s (local/KodeKloud), this is ignored and Traefik handles routing instead.
+#
+# Annotations reference:
+# https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/ingress/annotations/
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: deployhub-ingress
+  namespace: deployhub
+  annotations:
+    # ── ALB Controller annotations (EKS only) ────────────────────────────────
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip        # required for Fargate/pod IPs
+    alb.ingress.kubernetes.io/load-balancer-name: deployhub-alb
+    alb.ingress.kubernetes.io/group.name: deployhub  # share ALB across ingresses
+
+    # Health check settings
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+
+    # Enable access logs (optional, remove if no S3 bucket configured)
+    # alb.ingress.kubernetes.io/load-balancer-attributes: access_logs.s3.enabled=true
+
+spec:
+  rules:
+    - http:
+        paths:
+          # API routes — forward to backend service
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /ready
+            pathType: Exact
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          - path: /metrics
+            pathType: Exact
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+          # Frontend — catch-all
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

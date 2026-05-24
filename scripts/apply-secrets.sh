@@ -12,7 +12,6 @@ if [ -f .env.aws ]; then
   export $(grep -v '^#' .env.aws | xargs)
 fi
 
-# ── Detect environment and resolve public endpoint ───────────────────────────
 PUBLIC_URL=""
 
 if command -v terraform &>/dev/null && [ -d terraform/environments/prod ]; then
@@ -35,7 +34,6 @@ if [ -z "$PUBLIC_URL" ]; then
   read -rp "Enter public URL (e.g. http://1.2.3.4:3081): " PUBLIC_URL
 fi
 
-# ── Resolve ECR apps registry URL ────────────────────────────────────────────
 APPS_ECR=""
 if command -v terraform &>/dev/null && [ -d terraform/environments/prod ]; then
   APPS_ECR=$(cd terraform/environments/prod && terraform output -raw ecr_apps_url 2>/dev/null || true)
@@ -47,7 +45,6 @@ if [ -z "$APPS_ECR" ]; then
   read -rp "Enter ECR apps registry URL: " APPS_ECR
 fi
 
-# ── Prompt for secrets ────────────────────────────────────────────────────────
 read -rp "Grafana admin username [admin]: " GRAFANA_USER
 GRAFANA_USER="${GRAFANA_USER:-admin}"
 
@@ -58,7 +55,10 @@ if [ -z "$GRAFANA_PASSWORD" ]; then
   exit 1
 fi
 
-read -rsp "MongoDB password (leave blank to auto-generate): " MONGO_PASSWORD
+read -rp "MongoDB root username [root]: " MONGO_ROOT_USER
+MONGO_ROOT_USER="${MONGO_ROOT_USER:-root}"
+
+read -rsp "MongoDB root password (leave blank to auto-generate): " MONGO_PASSWORD
 echo
 if [ -z "$MONGO_PASSWORD" ]; then
   MONGO_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
@@ -69,21 +69,20 @@ fi
 read -rp "GitHub webhook secret (leave blank to skip): " GITHUB_WEBHOOK_SECRET
 GITHUB_WEBHOOK_SECRET="${GITHUB_WEBHOOK_SECRET:-}"
 
-# Build the authenticated MongoDB URI using the root user
-MONGO_URI="mongodb://root:${MONGO_PASSWORD}@mongo:27017/deployhub?authSource=admin"
+MONGO_URI="mongodb://${MONGO_ROOT_USER}:${MONGO_PASSWORD}@mongodb-service:27017/deployhub?authSource=admin"
 
-# ── Render and apply — values never touch disk ────────────────────────────────
 echo ""
 echo "Applying Secrets and ConfigMap to cluster..."
 
+MONGO_ROOT_USER="$MONGO_ROOT_USER" \
+MONGO_ROOT_PASSWORD="$MONGO_PASSWORD" \
 REPLACE_ME_GRAFANA_USER="$GRAFANA_USER" \
 REPLACE_ME_GRAFANA_PASSWORD="$GRAFANA_PASSWORD" \
 REPLACE_ME_MONGO_URI="$MONGO_URI" \
-REPLACE_ME_MONGO_PASSWORD="$MONGO_PASSWORD" \
 REPLACE_ME_REGISTRY_ADDR="$APPS_ECR" \
 REPLACE_ME_PUBLIC_BASE_URL="$PUBLIC_URL" \
 REPLACE_ME_GITHUB_WEBHOOK_SECRET="$GITHUB_WEBHOOK_SECRET" \
-  envsubst < k8s_deploy/secrets.yaml | kubectl apply -f -
+  envsubst < k8s_deploy/base/secrets.yaml | kubectl apply -f -
 
 echo ""
 echo "✅ Secrets applied."

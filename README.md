@@ -117,13 +117,11 @@ Push to main → deploy.yml
 │       ├── k8s.py            Kubernetes Python SDK wrappers
 │       └── analyzer.py       Multi-service monorepo detection
 ├── frontend/                 React + Vite — 5 pages, radial nav, dark mode
-├── k8s_deploy/               Kubernetes manifests (k3s + EKS compatible)
-│   ├── backend.yaml          Deployment, RBAC, PVC, PodDisruptionBudget
-│   ├── monitoring.yaml       Prometheus + Grafana (pre-provisioned dashboard)
-│   ├── logging.yaml          Loki + Promtail DaemonSet
-│   ├── hpa.yaml              HPA: backend scales 1→5 on CPU/memory
-│   ├── backups.yaml          MongoDB backup CronJob (daily, S3 upload)
-│   └── secrets.yaml          Template — envsubst at deploy time
+├── k8s_deploy/               Kustomize manifests
+│   ├── base/                 Shared control-plane resources + NetworkPolicies
+│   └── overlays/
+│       ├── k3s/              Traefik ingress + monitoring + logging
+│       └── eks/              ALB ingress (no in-cluster monitoring)
 ├── terraform/
 │   ├── modules/              networking / eks / ecs-monitoring / ecr / dns-acm
 │   ├── environments/
@@ -171,7 +169,7 @@ cd terraform/environments/k3s && terraform init && terraform apply
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/projects` | Add a project (rate-limited: 20/min) |
+| `POST` | `/api/projects` | Add a project (rate-limited: 10/min) |
 | `GET` | `/api/projects` | List all projects |
 | `GET` | `/api/projects/{id}` | Project detail + deployment history |
 | `GET` | `/api/projects/{id}/history` | Last 50 deployments from MongoDB |
@@ -181,11 +179,39 @@ cd terraform/environments/k3s && terraform init && terraform apply
 | `DELETE` | `/api/projects/{id}` | Delete project + all resources |
 | `GET` | `/api/logs/{id}/stream` | SSE live log stream |
 | `GET` | `/api/projects/{id}/health` | Live pod health + restart count |
-| `POST` | `/api/webhooks/github/{id}` | GitHub push webhook (HMAC verified) |
-| `GET` | `/api/system` | Cluster status (5s TTL cache) |
+| `POST` | `/api/webhooks/github/{id}` | GitHub push webhook (per-project HMAC when configured) |
+| `POST` | `/api/projects/{id}/webhook-secret` | Generate/rotate per-project webhook secret (shown once) |
+| `POST` | `/api/projects/{id}/rollback` | Re-deploy last known-good image (skip build) |
+| `GET` | `/api/projects/{id}/resources` | Namespace resource usage vs quota (k8s mode) |
+| `GET` | `/api/system` | Cluster status incl. `queue_depth`, `max_concurrent_builds` |
 | `GET` | `/api/stats` | Persistent deployment stats from MongoDB |
 | `GET` | `/metrics` | Prometheus scrape endpoint |
 | `WS` | `/ws/projects/{id}` | WebSocket real-time status updates |
+
+---
+
+## Configuring your app
+
+Add an optional `deployhub.yml` at the **repository root** to override autodetection.
+Do **not** put secrets in this file — use the DeployHub UI env-var field or your
+platform secret store instead.
+
+```yaml
+# deployhub.yml — runtime overrides only (no secrets)
+port: 3000
+healthPath: /health
+buildContext: ./app
+env:
+  NODE_ENV: production
+  LOG_LEVEL: info
+```
+
+| Key | Effect |
+|-----|--------|
+| `port` | Container port exposed to health checks and the Service |
+| `healthPath` | HTTP path used for post-deploy health probing (default `/`) |
+| `buildContext` | Subdirectory used as the Docker build context (monorepos) |
+| `env` | Non-secret env vars injected into the runtime Deployment/Pod |
 
 ---
 

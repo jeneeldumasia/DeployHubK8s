@@ -287,7 +287,9 @@ jobs:
           REPLACE_ME_GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
           REPLACE_ME_GRAFANA_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
           REPLACE_ME_MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
-          REPLACE_ME_MONGO_URI: "mongodb://root:${{ secrets.MONGO_PASSWORD }}@mongo:27017/deployhub?authSource=admin"
+          MONGO_ROOT_USER: root
+          MONGO_ROOT_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+          REPLACE_ME_MONGO_URI: "mongodb://root:${{ secrets.MONGO_PASSWORD }}@mongodb-service:27017/deployhub?authSource=admin"
           REPLACE_ME_REGISTRY_ADDR: ${{ steps.tf.outputs.apps_ecr }}
           REPLACE_ME_PUBLIC_BASE_URL: "http://${{ steps.tf.outputs.ec2_ip }}:3081"
           REPLACE_ME_GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
@@ -295,14 +297,13 @@ jobs:
           TUNNEL_ID: ${{ secrets.CLOUDFLARE_TUNNEL_ID }}
         run: |
           cp -r k8s_deploy/ k8s_rendered/
-          sed -i "s|deployhub-backend:latest|$ECR_REGISTRY/$BACKEND_IMAGE:$IMAGE_TAG|g" k8s_rendered/backend.yaml
-          sed -i "s|deployhub-frontend:latest|$ECR_REGISTRY/$FRONTEND_IMAGE:$IMAGE_TAG|g" k8s_rendered/frontend.yaml
-          sed -i "s|http://3.95.33.38|http://$EC2_IP|g" k8s_rendered/backend.yaml
-          sed -i 's|\${BACKEND_SA_ROLE_ARN}||g' k8s_rendered/backend.yaml
-          envsubst < k8s_deploy/secrets.yaml > k8s_rendered/secrets.yaml
-          # Substitute TUNNEL_ID into cloudflared config (no-op if secret not set)
+          sed -i "s|deployhub-backend:latest|$ECR_REGISTRY/$BACKEND_IMAGE:$IMAGE_TAG|g" k8s_rendered/base/backend.yaml
+          sed -i "s|deployhub-frontend:latest|$ECR_REGISTRY/$FRONTEND_IMAGE:$IMAGE_TAG|g" k8s_rendered/base/frontend.yaml
+          sed -i "s|http://3.95.33.38|http://$EC2_IP|g" k8s_rendered/base/backend.yaml
+          sed -i 's|\${BACKEND_SA_ROLE_ARN}||g' k8s_rendered/base/backend.yaml
+          envsubst < k8s_deploy/base/secrets.yaml > k8s_rendered/base/secrets.yaml
           if [ -n "$TUNNEL_ID" ]; then
-            envsubst '${TUNNEL_ID}' < k8s_deploy/cloudflared.yaml > k8s_rendered/cloudflared.yaml
+            envsubst '${TUNNEL_ID}' < k8s_deploy/overlays/k3s/cloudflared.yaml > k8s_rendered/overlays/k3s/cloudflared.yaml
           fi
 
       - name: Wait for k3s to be ready on EC2
@@ -370,19 +371,16 @@ jobs:
           kubectl apply -f /home/ubuntu/k8s_deploy/namespace.yaml
 
           # If MongoDB deployment exists, check if auth is failing due to an uninitialized data volume
-          if kubectl get deployment mongo -n deployhub &>/dev/null; then
+          if kubectl get deployment mongodb -n deployhub &>/dev/null; then
             echo "Checking MongoDB authentication status..."
-            # Wait briefly for mongo pod to be running if it's not
-            kubectl rollout status deployment/mongo -n deployhub --timeout=30s || true
-            
-            # Check if we can authenticate as root
-            if kubectl exec -n deployhub deployment/mongo -- mongosh --username root --password "$MONGO_PASSWORD" --authenticationDatabase admin --eval "db.adminCommand('ping')" &>/dev/null; then
+            kubectl rollout status deployment/mongodb -n deployhub --timeout=30s || true
+            if kubectl exec -n deployhub deployment/mongodb -- mongosh --username root --password "$MONGO_PASSWORD" --authenticationDatabase admin --eval "db.adminCommand('ping')" &>/dev/null; then
               echo "✅ MongoDB authentication is working."
             else
               echo "⚠️ MongoDB authentication failed. Checking if localhost exception is active (no users exist)..."
-              if kubectl exec -n deployhub deployment/mongo -- mongosh --eval "db.adminCommand('ping')" &>/dev/null; then
+              if kubectl exec -n deployhub deployment/mongodb -- mongosh --eval "db.adminCommand('ping')" &>/dev/null; then
                 echo "🗑️ MongoDB is unauthenticated. Deleting deployment and PVC to force clean initialization with root user..."
-                kubectl delete deployment mongo -n deployhub || true
+                kubectl delete deployment mongodb -n deployhub || true
                 kubectl delete pvc mongo-pvc -n deployhub || true
                 sleep 5
               else
@@ -391,12 +389,12 @@ jobs:
             fi
           fi
 
-          kubectl apply -f /home/ubuntu/k8s_deploy/
+          kubectl apply -k /home/ubuntu/k8s_deploy/overlays/k3s
           kubectl rollout status deployment/backend  -n deployhub --timeout=300s || {
             echo "=== backend pod describe ==="
-            kubectl describe pod -n deployhub -l app=backend
+            kubectl describe pod -n deployhub -l app=deployhub-backend
             echo "=== backend pod logs ==="
-            kubectl logs -n deployhub -l app=backend --tail=50 || true
+            kubectl logs -n deployhub -l app=deployhub-backend --tail=50 || true
             exit 1
           }
           kubectl rollout status deployment/frontend -n deployhub --timeout=120s
@@ -546,21 +544,23 @@ jobs:
           REPLACE_ME_GRAFANA_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
           REPLACE_ME_GRAFANA_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
           REPLACE_ME_MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
-          REPLACE_ME_MONGO_URI: "mongodb://root:${{ secrets.MONGO_PASSWORD }}@mongo:27017/deployhub?authSource=admin"
+          MONGO_ROOT_USER: root
+          MONGO_ROOT_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+          REPLACE_ME_MONGO_URI: "mongodb://root:${{ secrets.MONGO_PASSWORD }}@mongodb-service:27017/deployhub?authSource=admin"
           REPLACE_ME_REGISTRY_ADDR: ${{ steps.tf.outputs.ecr_apps }}
           REPLACE_ME_PUBLIC_BASE_URL: "http://${{ steps.tf.outputs.alb_dns }}"
         run: |
           cp -r k8s_deploy/ k8s_rendered/
-          sed -i "s|deployhub-backend:latest|$ECR_BACKEND:$IMAGE_TAG|g" k8s_rendered/backend.yaml
-          sed -i "s|deployhub-frontend:latest|$ECR_FRONTEND:$IMAGE_TAG|g" k8s_rendered/frontend.yaml
-          sed -i "s|\${BACKEND_SA_ROLE_ARN}|$BACKEND_SA_ROLE_ARN|g" k8s_rendered/backend.yaml
-          envsubst < k8s_deploy/secrets.yaml > k8s_rendered/secrets.yaml
+          sed -i "s|deployhub-backend:latest|$ECR_BACKEND:$IMAGE_TAG|g" k8s_rendered/base/backend.yaml
+          sed -i "s|deployhub-frontend:latest|$ECR_FRONTEND:$IMAGE_TAG|g" k8s_rendered/base/frontend.yaml
+          sed -i "s|\${BACKEND_SA_ROLE_ARN}|$BACKEND_SA_ROLE_ARN|g" k8s_rendered/base/backend.yaml
+          MONGO_ROOT_USER=root \
+          MONGO_ROOT_PASSWORD="${{ secrets.MONGO_PASSWORD }}" \
+          envsubst < k8s_deploy/base/secrets.yaml > k8s_rendered/base/secrets.yaml
 
       - name: Apply manifests to EKS
         run: |
-          kubectl apply -f k8s_rendered/namespace.yaml
-          kubectl apply -f k8s_rendered/secrets.yaml
-          kubectl apply -f k8s_rendered/
+          kubectl apply -k k8s_rendered/overlays/eks
 
       - name: Wait for rollout
         run: |

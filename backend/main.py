@@ -50,9 +50,21 @@ from observability import (
     log_event,
     metrics_response,
 )
-from security import verify_github_signature
+from security import (
+    generate_webhook_secret,
+    hash_webhook_secret,
+    verify_github_signature,
+    verify_project_webhook_signature,
+)
+from utils.ecr_cleanup import delete_project_ecr_images
 from utils.docker import check_docker_available, count_running_deployhub_containers, get_container_logs
-from utils.k8s import check_k8s_available, count_running_deployhub_pods, get_pod_logs, get_all_pod_restart_counts
+from utils.k8s import (
+    check_k8s_available,
+    count_running_deployhub_pods,
+    get_all_pod_restart_counts,
+    get_namespace_resources,
+    get_pod_logs,
+)
 from utils.analyzer import RepoAnalyzer
 from utils.git import GitError, normalize_repo_url, clone_or_update_repo
 from worker import DeploymentWorker
@@ -61,7 +73,7 @@ from worker import DeploymentWorker
 limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 
 def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
-    return JSONResponse(status_code=429, content={"detail": f"Rate limit exceeded: {exc.detail}"})
+    return JSONResponse(status_code=429, content={"error": "Too many requests, slow down."})
 
 # ── WebSocket connection manager (#17) ────────────────────────────────────────
 class _WSManager:
@@ -138,7 +150,7 @@ async def _reconcile_pod_states() -> None:
                 v1 = await loop.run_in_executor(None, _get_k8s_client)
                 await loop.run_in_executor(
                     None,
-                    lambda: v1.read_namespaced_pod(name=container_name, namespace=settings.k8s_namespace)
+                    lambda: v1.read_namespaced_pod(name=container_name, namespace=settings.apps_namespace)
                 )
             except ApiException as e:
                 if e.status == 404:
@@ -247,6 +259,8 @@ def serialize_project_summary(document: dict) -> ProjectSummary:
         updated_at=document["updated_at"],
         last_deployed_at=document.get("last_deployed_at"),
         env_vars=document.get("env_vars", {}),
+        last_good_image=document.get("last_good_image"),
+        has_webhook_secret=bool(document.get("webhook_secret") or document.get("webhook_secret_hash")),
     )
 
 
@@ -316,7 +330,7 @@ async def analyze_repository(request: Request) -> dict:
 
 # ── Projects ──────────────────────────────────────────────────────────────────
 @app.post("/api/projects", response_model=ProjectSummary)
-@limiter.limit("20/minute")
+@limiter.limit("10/minute")
 async def create_project_endpoint(request: Request, payload: ProjectCreate) -> ProjectSummary:
     try:
         normalized_repo_url = normalize_repo_url(str(payload.repo_url))
@@ -374,6 +388,19 @@ async def get_project_endpoint(project_id: str) -> ProjectDetail:
     return serialize_project_detail(project)
 
 
+@app.get("/api/projects/{project_id}/resources")
+async def get_project_resources(project_id: str) -> dict:
+    project = await get_project_by_id(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if settings.deployment_mode != "k8s":
+        raise HTTPException(status_code=400, detail="Resource metrics are only available in k8s mode")
+    pod_name = project.get("container_name")
+    if not pod_name:
+        raise HTTPException(status_code=404, detail="No deployed pod for this project")
+    return await get_namespace_resources(pod_name)
+
+
 @app.get("/api/projects/{project_id}/history")
 async def get_project_history(project_id: str) -> dict:
     """Return the deployment history for a project (last 50 deployments)."""
@@ -404,19 +431,41 @@ async def queue_deployment(project_id: str, action: str) -> ProjectActionRespons
 
 
 @app.post("/api/deploy/{project_id}", response_model=ProjectActionResponse)
-async def deploy_project_endpoint(project_id: str) -> ProjectActionResponse:
+@limiter.limit("10/minute")
+async def deploy_project_endpoint(request: Request, project_id: str) -> ProjectActionResponse:
     return await queue_deployment(project_id, action="deploy")
 
 
 @app.post("/api/redeploy/{project_id}", response_model=ProjectActionResponse)
-async def redeploy_project_endpoint(project_id: str) -> ProjectActionResponse:
+@limiter.limit("10/minute")
+async def redeploy_project_endpoint(request: Request, project_id: str) -> ProjectActionResponse:
     return await queue_deployment(project_id, action="redeploy")
 
 
+@app.post("/api/projects/{project_id}/rollback", response_model=ProjectActionResponse)
+async def rollback_project(project_id: str) -> ProjectActionResponse:
+    """Re-deploy the last known-good image without rebuilding."""
+    project = await get_project_by_id(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not project.get("last_good_image"):
+        raise HTTPException(status_code=409, detail="No previous successful deploy found.")
+    if project.get("status") == "building":
+        raise HTTPException(status_code=409, detail="Build in progress — wait before rolling back.")
+    if not await worker.enqueue(project_id, action="rollback"):
+        return ProjectActionResponse(
+            message="Rollback already queued",
+            project_id=project_id,
+            status="queued",
+        )
+    await update_project(project_id, {"status": "queued"})
+    log_event("rollback_queued", project_id=project_id)
+    return ProjectActionResponse(message="Rollback queued", project_id=project_id, status="queued")
+
+
 @app.post("/api/webhooks/github/{project_id}")
-@limiter.limit("100/hour")
-async def github_webhook(project_id: str, request: Request) -> dict:
-    await verify_github_signature(request)
+@limiter.limit("10/minute")
+async def github_webhook(request: Request, project_id: str) -> dict:
     github_event = request.headers.get("X-GitHub-Event")
     if github_event == "ping":
         return {"message": "pong"}
@@ -425,9 +474,41 @@ async def github_webhook(project_id: str, request: Request) -> dict:
     project = await get_project_by_id(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    body = await request.body()
+    project_secret = project.get("webhook_secret")
+    if project_secret:
+        verify_project_webhook_signature(
+            body, request.headers.get("X-Hub-Signature-256", ""), project_secret
+        )
+    elif settings.github_webhook_secret:
+        signature_header = request.headers.get("X-Hub-Signature-256", "")
+        import hashlib
+        import hmac
+
+        expected = "sha256=" + hmac.new(
+            settings.github_webhook_secret.encode(), body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(signature_header, expected):
+            log_event("webhook_sig_invalid", project_id=project_id)
+            raise HTTPException(status_code=403, detail="Invalid webhook signature")
     await queue_deployment(project_id, action="redeploy")
     log_event("webhook_received", project_id=project_id, event=github_event)
     return {"message": "Redeployment queued via GitHub webhook"}
+
+
+@app.post("/api/projects/{project_id}/webhook-secret")
+async def set_webhook_secret(project_id: str) -> dict:
+    """Generate and store a new per-project webhook secret. Returns plaintext once."""
+    project = await get_project_by_id(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    new_secret = generate_webhook_secret()
+    await update_project(project_id, {
+        "webhook_secret": new_secret,
+        "webhook_secret_hash": hash_webhook_secret(new_secret),
+    })
+    log_event("webhook_secret_rotated", project_id=project_id)
+    return {"secret": new_secret, "note": "Save this — it will not be shown again."}
 
 
 @app.post("/api/stop/{project_id}", response_model=ProjectActionResponse)
@@ -452,6 +533,7 @@ async def delete_project_endpoint(project_id: str) -> Response:
         raise HTTPException(status_code=409, detail="Project is currently building and cannot be deleted")
     await update_project(project_id, {"status": "deleting"})
     await worker.delete_project_resources(project)
+    await delete_project_ecr_images(project_id)
     await delete_project(project_id)
     deployhub_projects_total.set(await count_projects())
     log_event("project_deleted", project_id=project_id)
@@ -572,6 +654,8 @@ async def get_system_endpoint() -> SystemResponse:
             "running_container_count": running,
             "active_deployments": worker.active_count(),
             "queued_deployments": queued_count,
+            "queue_depth": worker.queued_count() + worker.active_count(),
+            "max_concurrent_builds": settings.max_concurrent_builds,
         }
     data = await _cache.get_or_set("system", _fetch)
     return SystemResponse(**{**data, "active_deployments": worker.active_count()})

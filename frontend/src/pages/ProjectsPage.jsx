@@ -178,6 +178,16 @@ export default function ProjectsPage({
                 >
                   Redeploy
                 </button>
+                {projectForActions.last_good_image && projectForActions.status !== "building" && (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={Boolean(actionInFlight)}
+                    onClick={() => onProjectAction("rollback", projectForActions.id)}
+                  >
+                    Rollback
+                  </button>
+                )}
                 <button
                   type="button"
                   className="secondary-button"

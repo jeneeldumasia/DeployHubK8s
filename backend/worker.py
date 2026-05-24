@@ -15,6 +15,7 @@ from observability import (
     deployhub_pod_runtime_seconds,
     log_event,
 )
+from utils.deployhub_config import apply_deployhub_config, load_deployhub_config
 from utils.detector import detect_project_type
 from utils.docker import (
     DockerError,
@@ -49,6 +50,7 @@ class DeploymentWorker:
         self.queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
         self.enqueued_project_ids: set[str] = set()
         self.active_project_ids: set[str] = set()
+        self._build_semaphore = asyncio.Semaphore(settings.max_concurrent_builds)
         self.public_base_url = public_base_url.rstrip("/")
         self.generated_dockerfile_root = Path(generated_dockerfile_root)
         self.task: asyncio.Task | None = None
@@ -86,7 +88,11 @@ class DeploymentWorker:
             self.enqueued_project_ids.discard(project_id)
             self.active_project_ids.add(project_id)
             try:
-                await self.deploy(project_id, action=action)
+                async with self._build_semaphore:
+                    if action == "rollback":
+                        await self._do_rollback(project_id)
+                    else:
+                        await self.deploy(project_id, action=action)
             finally:
                 self.active_project_ids.discard(project_id)
                 self.queue.task_done()
@@ -123,9 +129,18 @@ class DeploymentWorker:
             await update_project(project_id, {"repo_path": str(repo_path)})
             await record_log(f"Repository ready at {repo_path}")
 
+            dh_config = load_deployhub_config(repo_path)
+            if dh_config:
+                await record_log("Applying deployhub.yml overrides")
+                overrides = apply_deployhub_config({}, dh_config)
+                persist = {k: v for k, v in overrides.items() if k in ("env_vars", "health_path", "context_path")}
+                if persist:
+                    await update_project(project_id, persist)
+                    project = await get_project_by_id(project_id) or project
+
             context_path = project.get("context_path") or ""
             build_context = repo_path / context_path
-            
+
             project_type, metadata = detect_project_type(build_context)
             await update_project(project_id, {"project_type": project_type})
             await record_log(f"Detected project type: {project_type}")
@@ -141,7 +156,7 @@ class DeploymentWorker:
                 await record_log(f"Using generated Dockerfile at {dockerfile_path}")
 
             await self.stop_project_resources(project)
-            container_port = self._default_container_port(project_type)
+            container_port = project.get("container_port") or self._default_container_port(project_type)
             await record_log(f"Using container port {container_port}")
 
             image_tag = self.image_tag(project_id)
@@ -153,12 +168,33 @@ class DeploymentWorker:
                 await record_log(f"Building Docker image '{registry_image}' via BuildKit for Kubernetes")
 
                 from utils.buildkit import build_image as buildkit_build_image
-                build_result = await buildkit_build_image(
-                    image_tag=registry_image,
-                    dockerfile_path=str(dockerfile_path),
-                    context_path=str(build_context),
-                    on_line=record_log,
-                )
+                try:
+                    build_result = await asyncio.wait_for(
+                        buildkit_build_image(
+                            image_tag=registry_image,
+                            dockerfile_path=str(dockerfile_path),
+                            context_path=str(build_context),
+                            on_line=record_log,
+                        ),
+                        timeout=settings.build_timeout_seconds,
+                    )
+                except asyncio.TimeoutError:
+                    log_event(
+                        "build_timeout",
+                        project_id=project_id,
+                        timeout=settings.build_timeout_seconds,
+                    )
+                    await update_project(project_id, {
+                        "status": "failed",
+                        "last_error": (
+                            "Build exceeded time limit. Check for infinite loops "
+                            "or very large dependencies."
+                        ),
+                    })
+                    await record_log(
+                        f"[ERROR] Build timed out after {settings.build_timeout_seconds}s"
+                    )
+                    return
                 if build_result["logs"]:
                     for line in build_result["logs"].splitlines():
                         await record_log(line)
@@ -224,6 +260,7 @@ class DeploymentWorker:
                         pod_name=container_name,
                         node_port=assigned_port,
                         record_log=record_log,
+                        health_path=project.get("health_path") or "/",
                     )
                 except RuntimeError as health_exc:
                     # Rollback: tear down the pod and ingress we just created
@@ -278,6 +315,10 @@ class DeploymentWorker:
                     "previous_image_tag": project.get("image_tag"),
                 },
             )
+            # Save last known-good image for rollback
+            if self.deployment_mode == "k8s":
+                await update_project(project_id, {"last_good_image": registry_image})
+                log_event("last_good_image_saved", project_id=project_id, image=registry_image)
             await record_log(f"App deployed successfully on {service_url}")
             duration = (datetime.now(UTC) - started_at).total_seconds()
             deployhub_deployment_duration_seconds.labels(action=action).observe(duration)
@@ -555,11 +596,145 @@ class DeploymentWorker:
                 ]
             )
 
+        if project_type == "go":
+            return "\n".join([
+                "FROM golang:1.22-alpine AS builder",
+                "WORKDIR /app",
+                "COPY . .",
+                "RUN go build -o app .",
+                "FROM alpine:3.19",
+                "WORKDIR /app",
+                "COPY --from=builder /app/app .",
+                "EXPOSE 8080",
+                'CMD ["./app"]',
+                "",
+            ])
+
+        if project_type == "rust":
+            return "\n".join([
+                "FROM rust:1.77-alpine AS builder",
+                "WORKDIR /app",
+                "COPY . .",
+                "RUN cargo build --release",
+                "FROM alpine:3.19",
+                "WORKDIR /app",
+                "COPY --from=builder /app/target/release/app .",
+                "EXPOSE 8080",
+                'CMD ["./app"]',
+                "",
+            ])
+
+        if project_type == "java":
+            if metadata.get("java_build") == "gradle":
+                return "\n".join([
+                    "FROM gradle:8-jdk21 AS builder",
+                    "WORKDIR /app",
+                    "COPY . .",
+                    "RUN gradle build -q && cp build/libs/*.jar /app/app.jar",
+                    "FROM eclipse-temurin:21-jre",
+                    "WORKDIR /app",
+                    "COPY --from=builder /app/app.jar app.jar",
+                    "EXPOSE 8080",
+                    'CMD ["java", "-jar", "app.jar"]',
+                    "",
+                ])
+            return "\n".join([
+                "FROM maven:3.9-eclipse-temurin-21 AS builder",
+                "WORKDIR /app",
+                "COPY . .",
+                "RUN mvn package -q && cp target/*.jar /app/app.jar",
+                "FROM eclipse-temurin:21-jre",
+                "WORKDIR /app",
+                "COPY --from=builder /app/app.jar app.jar",
+                "EXPOSE 8080",
+                'CMD ["java", "-jar", "app.jar"]',
+                "",
+            ])
+
+        if project_type == "ruby":
+            if metadata.get("ruby_rails"):
+                cmd = 'bundle exec rails server -b 0.0.0.0 -p ${PORT:-3000}'
+            else:
+                cmd = "bundle exec ruby app.rb"
+            return "\n".join([
+                "FROM ruby:3.3-alpine",
+                "WORKDIR /app",
+                "COPY . .",
+                "RUN bundle install",
+                "ENV PORT=3000",
+                "EXPOSE 3000",
+                f'CMD ["sh", "-c", "{cmd}"]',
+                "",
+            ])
+
+        if project_type == "php":
+            return "\n".join([
+                "FROM php:8.3-apache",
+                "WORKDIR /var/www/html",
+                "COPY --from=composer:2 /usr/bin/composer /usr/bin/composer",
+                "COPY . .",
+                "RUN composer install --no-dev",
+                "EXPOSE 80",
+                "",
+            ])
+
         raise RuntimeError("Unsupported project type. Add a Dockerfile to the repository for custom builds.")
 
     @staticmethod
     def _default_container_port(project_type: str) -> int:
-        return {"node": 3000, "python": 8000, "static": 80, "unknown": 8080}.get(project_type, 8080)
+        return {
+            "node": 3000, "python": 8000, "static": 80,
+            "go": 8080, "rust": 8080, "java": 8080,
+            "ruby": 3000, "php": 80,
+        }.get(project_type, 8080)
+
+    async def _do_rollback(self, project_id: str) -> None:
+        project = await get_project_by_id(project_id)
+        rollback_image = project.get("last_good_image") if project else None
+        if not rollback_image:
+            await update_project(project_id, {
+                "status": "failed",
+                "last_error": "Rollback failed: no last_good_image recorded.",
+            })
+            return
+        container_name = self.container_name(project_id)
+        container_port = project.get("container_port") or self._default_container_port(
+            project.get("project_type", "unknown")
+        )
+
+        async def record_log(msg: str) -> None:
+            await append_build_log(project_id, timestamped_log(msg))
+
+        await record_log(f"Rolling back to {rollback_image}")
+        await update_project(project_id, {"status": "building",
+                                          "build_logs": [timestamped_log("Rollback started")]})
+        await self.stop_project_resources(project)
+        pod_result = await create_pod(
+            name=container_name,
+            image=rollback_image,
+            port=container_port,
+            node_port=project.get("assigned_port"),
+            env_vars=project.get("env_vars", {}),
+        )
+        if pod_result.get("status") == "error":
+            await update_project(project_id, {
+                "status": "failed",
+                "last_error": f"Rollback pod creation failed: {pod_result.get('error')}",
+            })
+            return
+        await wait_for_pod_running(container_name)
+        await self._health_check_pod(
+            pod_name=container_name,
+            node_port=project.get("assigned_port"),
+            record_log=record_log,
+            health_path=project.get("health_path") or "/",
+        )
+        await update_project(project_id, {
+            "status": "running",
+            "image_tag": rollback_image,
+        })
+        await record_log("✅ Rollback complete.")
+        log_event("rollback_complete", project_id=project_id, image=rollback_image)
 
     @staticmethod
     def _summarize_error(exc: Exception) -> str:
@@ -571,6 +746,7 @@ class DeploymentWorker:
         pod_name: str,
         node_port: int,
         record_log,
+        health_path: str = "/",
         pod_ready_timeout: int = 120,
         http_timeout: int = 60,
         http_retries: int = 10,
@@ -592,7 +768,8 @@ class DeploymentWorker:
         await record_log("✅ Pod is Running. Probing HTTP endpoint...")
 
         base_host = settings.public_base_url.replace("http://", "").replace("https://", "").split(":")[0]
-        probe_url = f"http://{base_host}:{node_port}/"
+        path = health_path if health_path.startswith("/") else f"/{health_path}"
+        probe_url = f"http://{base_host}:{node_port}{path}"
 
         last_error: str = "no attempts made"
         timeout = aiohttp.ClientTimeout(total=10)

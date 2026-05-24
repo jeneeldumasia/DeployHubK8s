@@ -1,0 +1,95 @@
+# Default-deny all ingress in the control-plane namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all-ingress-deployhub
+  namespace: deployhub
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Allow external ingress to the API and UI (required with default-deny above).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-control-plane
+  namespace: deployhub
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - deployhub-backend
+          - frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - {}
+---
+# Allow BuildKit to receive build traffic from the backend.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-buildkit
+  namespace: deployhub
+spec:
+  podSelector:
+    matchLabels:
+      app: buildkitd
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: deployhub-backend
+      ports:
+        - protocol: TCP
+          port: 1234
+---
+# Allow MongoDB ingress only from the backend.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-mongo
+  namespace: deployhub
+spec:
+  podSelector:
+    matchLabels:
+      app: mongodb
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: deployhub-backend
+      ports:
+        - protocol: TCP
+          port: 27017
+---
+# User-app namespace: block cluster-internal egress except DNS; allow internet.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-egress-to-cluster-deployhub-apps
+  namespace: deployhub-apps
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

@@ -45,6 +45,7 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
+    @property
     def resolved_mongo_uri(self) -> str:
         if self.mongo_uri.strip():
             return self.mongo_uri.strip()

@@ -351,6 +351,7 @@ jobs:
           set -e
           ECR_PASSWORD=\$(aws ecr get-login-password --region $AWS_REGION)
           kubectl create namespace deployhub --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace deployhub-apps --dry-run=client -o yaml | kubectl apply -f -
           kubectl create secret docker-registry ecr-private-key \
             --namespace deployhub \
             --docker-server=$ECR_REGISTRY \

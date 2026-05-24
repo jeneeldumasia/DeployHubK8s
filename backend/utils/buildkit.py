@@ -104,13 +104,8 @@ def _build_image_sync(
             parts = image_tag.split(".")
             region = parts[3] if len(parts) > 3 else settings.aws_region
 
-            # ── Ensure the ECR repository exists before pushing ──────────────
-            # ECR returns 404 on push if the repo doesn't exist; it never
-            # auto-creates repos the way Docker Hub does.
-            # Returns a warning string if creation was skipped due to IAM limits.
             repo_warning = _ensure_ecr_repository(image_tag, region)
             if repo_warning:
-                # Print to stdout so it appears in build logs, but don't abort
                 print(repo_warning, flush=True)
 
             ecr = boto3.client("ecr", region_name=region)
@@ -133,6 +128,9 @@ def _build_image_sync(
                 json.dump(config, f)
             env["DOCKER_CONFIG"] = docker_config_dir
         except Exception as exc:
+            # Clean up temp dir if it was created before the exception
+            if docker_config_dir and os.path.exists(docker_config_dir):
+                shutil.rmtree(docker_config_dir, ignore_errors=True)
             return {
                 "status": "error",
                 "image": image_tag,

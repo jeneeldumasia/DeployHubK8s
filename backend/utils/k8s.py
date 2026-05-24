@@ -53,30 +53,42 @@ def _create_pod_sync(name: str, image: str, port: int, node_port: int = None, en
         },
     }
 
+    service_port = {
+        "protocol": "TCP",
+        "port": port,
+        "targetPort": port,
+    }
+    if node_port:
+        service_port["nodePort"] = node_port
+
     service_manifest = {
         "apiVersion": "v1",
         "kind": "Service",
         "metadata": {"name": name},
         "spec": {
             "selector": {"app": name},
-            "ports": [
-                {
-                    "protocol": "TCP",
-                    "port": port,
-                    "targetPort": port,
-                    "nodePort": node_port if node_port else None
-                }
-            ],
+            "ports": [service_port],
             "type": "NodePort" if node_port else "ClusterIP",
         },
     }
 
     try:
         v1.create_namespaced_pod(namespace=namespace, body=pod_manifest)
-        v1.create_namespaced_service(namespace=namespace, body=service_manifest)
-        return {"status": "success", "pod_name": name, "port": port}
     except ApiException as e:
         return {"status": "error", "error": str(e)}
+
+    try:
+        v1.create_namespaced_service(namespace=namespace, body=service_manifest)
+    except ApiException as e:
+        # Pod was created but service failed — clean up the pod so we don't
+        # leave an orphaned pod with no service pointing at it.
+        try:
+            v1.delete_namespaced_pod(name=name, namespace=namespace)
+        except ApiException:
+            pass
+        return {"status": "error", "error": f"Service creation failed (pod cleaned up): {e}"}
+
+    return {"status": "success", "pod_name": name, "port": port}
 
 
 def _delete_pod_sync(name: str) -> dict:

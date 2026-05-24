@@ -28,6 +28,32 @@ async def connect_to_mongo() -> None:
         await get_projects_collection().drop_index("normalized_repo_url_1")
     except Exception:
         pass
+
+    # Before creating the unique index, remove any duplicate documents that
+    # would violate it (keep the most recently updated one).
+    try:
+        pipeline = [
+            {"$sort": {"updated_at": -1}},
+            {"$group": {
+                "_id": {"url": "$normalized_repo_url", "path": "$context_path"},
+                "keep": {"$first": "$_id"},
+                "dupes": {"$push": "$_id"},
+            }},
+            {"$project": {
+                "dupes": {
+                    "$filter": {
+                        "input": "$dupes",
+                        "cond": {"$ne": ["$$this", "$keep"]},
+                    }
+                }
+            }},
+        ]
+        async for doc in get_projects_collection().aggregate(pipeline):
+            if doc.get("dupes"):
+                await get_projects_collection().delete_many({"_id": {"$in": doc["dupes"]}})
+    except Exception:
+        pass  # best-effort dedup; index creation may still fail on edge cases
+
     await get_projects_collection().create_index(
         [("normalized_repo_url", 1), ("context_path", 1)],
         unique=True,

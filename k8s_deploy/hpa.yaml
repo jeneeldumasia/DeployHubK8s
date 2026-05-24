@@ -1,11 +1,16 @@
-# ── Horizontal Pod Autoscaler — backend ──────────────────────────────────────
+# ── Horizontal Pod Autoscaler — DeployHub backend API ────────────────────────
 #
-# Scales the backend deployment between 1 and 5 replicas based on CPU usage.
-# Requires the Kubernetes Metrics Server to be running (k3s ships it by default).
+# Scales the DeployHub backend Deployment (the API server itself) between
+# 1 and 5 replicas based on CPU/memory pressure.
+#
+# NOTE: This HPA scales the DeployHub control plane, NOT user-deployed apps.
+# User apps are deployed as bare Pods (not Deployments) and cannot be
+# autoscaled by an HPA. Each user app gets exactly one pod.
+#
+# Requires the Kubernetes Metrics Server (k3s ships it by default).
 #
 # Scale-up:   triggers when average CPU across all backend pods exceeds 70%
 # Scale-down: waits 5 minutes of low usage before removing pods (stabilization)
-#             to avoid thrashing during brief traffic spikes.
 
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

@@ -116,10 +116,56 @@ worker = DeploymentWorker(
 )
 
 
+async def _reconcile_pod_states() -> None:
+    """
+    On startup, find all projects marked 'running' in MongoDB and verify
+    their pods still exist in k8s. Bare Pods are not rescheduled after a
+    node restart — without this, the UI shows stale 'running' status forever.
+    """
+    await asyncio.sleep(10)  # give k8s client time to initialise
+    try:
+        from utils.k8s import _get_k8s_client
+        from kubernetes.client.rest import ApiException
+        running_projects = await list_projects()
+        for project in running_projects:
+            if project.get("status") != "running":
+                continue
+            container_name = project.get("container_name")
+            if not container_name:
+                continue
+            try:
+                loop = asyncio.get_running_loop()
+                v1 = await loop.run_in_executor(None, _get_k8s_client)
+                await loop.run_in_executor(
+                    None,
+                    lambda: v1.read_namespaced_pod(name=container_name, namespace=settings.k8s_namespace)
+                )
+            except ApiException as e:
+                if e.status == 404:
+                    project_id = str(project["_id"])
+                    await update_project(project_id, {
+                        "status": "failed",
+                        "last_error": "Pod not found after restart — redeploy to restore",
+                    })
+                    log_event("pod_reconciled_missing", project_id=project_id, pod=container_name)
+            except Exception:
+                pass  # reconciliation is best-effort
+    except Exception as exc:
+        log_event("reconciliation_error", error=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await connect_to_mongo()
     worker.start()
+
+    # ── Startup reconciliation ────────────────────────────────────────────────
+    # Bare Pods (unlike Deployments) are not rescheduled after a node restart.
+    # On startup, check every project marked "running" in MongoDB and verify
+    # its pod actually exists in k8s. If not, mark it "failed" so the UI
+    # reflects reality instead of showing stale "running" status.
+    if settings.deployment_mode == "k8s":
+        asyncio.create_task(_reconcile_pod_states())
 
     loop = asyncio.get_running_loop()
 
@@ -436,11 +482,18 @@ async def stream_logs_endpoint(project_id: str) -> StreamingResponse:
 
     async def event_stream():
         last_payload: str | None = None
+        consecutive_not_found = 0
         while True:
             current = await get_project_by_id(project_id)
             if not current:
+                consecutive_not_found += 1
+                if consecutive_not_found >= 3:
+                    # Project was deleted — close the stream
+                    yield "data: {\"event\": \"deleted\"}\n\n"
+                    return
                 payload = {"project_id": project_id, "status": "failed", "build_logs": [], "runtime_logs": []}
             else:
+                consecutive_not_found = 0
                 payload = {
                     "project_id": project_id,
                     "status": current.get("status"),
@@ -453,7 +506,16 @@ async def stream_logs_endpoint(project_id: str) -> StreamingResponse:
             if serialized != last_payload:
                 last_payload = serialized
                 yield f"data: {serialized}\n\n"
-            await asyncio.sleep(2 if payload.get("status") in {"failed", "running", "stopped"} else 1)
+
+            proj_status = payload.get("status")
+            if proj_status in {"failed", "stopped", "deleting"}:
+                # Terminal state — close the stream so the client knows it's done
+                return
+            elif proj_status == "running":
+                await asyncio.sleep(3)
+            else:
+                # building / queued — poll faster
+                await asyncio.sleep(1)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})

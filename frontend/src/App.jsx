@@ -41,6 +41,14 @@ export default function App() {
   const [detectedServices, setDetectedServices] = useState(null);
   const [analyzing, setAnalyzing]             = useState(false);
   const [envVars, setEnvVars]                 = useState("");
+  const [toast, setToast]                     = useState(null);
+
+  /* ── Toast auto-dismiss ────────────────────────────────────── */
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timer = setTimeout(() => setToast(null), 10000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   /* ── Theme sync ────────────────────────────────────────────── */
   useEffect(() => {
@@ -171,7 +179,14 @@ export default function App() {
       
       if (newProject && newProject.id) {
         setSelectedProjectId(newProject.id);
-        setPage("logs");
+        setToast({
+          message: `🚀 Deployment queued for ${newProject.service_name || "project"}!`,
+          actionLabel: "View Live Logs",
+          action: () => {
+            setPage("logs");
+            setToast(null);
+          }
+        });
       }
       
       await loadProjects();
@@ -285,6 +300,23 @@ export default function App() {
           <MonitoringPage projects={projects} />
         )}
       </main>
+
+      {toast && (
+        <div className="toast-notification">
+          <div className="toast-content">
+            <span className="toast-icon">🚀</span>
+            <span className="toast-message">{toast.message}</span>
+          </div>
+          <div className="toast-actions">
+            {toast.actionLabel && (
+              <button onClick={toast.action} className="toast-action-btn">
+                {toast.actionLabel}
+              </button>
+            )}
+            <button onClick={() => setToast(null)} className="toast-close-btn">×</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

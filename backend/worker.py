@@ -468,8 +468,7 @@ class DeploymentWorker:
                 install_command = "npm install"
             return "\n".join(
                 [
-                    "FROM node:20-alpine",
-                    "WORKDIR /app",
+                    "FROM node:20-alpine",                    "WORKDIR /app",
                     "COPY . .",
                     f"RUN {install_command}",
                     "ENV HOST=0.0.0.0",

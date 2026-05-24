@@ -20,12 +20,12 @@ class RepoAnalyzer:
     def analyze(self) -> List[DetectedService]:
         services = []
         
-        # We perform a recursive scan, but skip common heavy directories
-        skip_dirs = {'.git', 'node_modules', 'venv', '.venv', '__pycache__', 'dist', 'build'}
+        # We perform a recursive scan, but skip common heavy and hidden/cache directories
+        skip_dirs = {'node_modules', 'venv', '.venv', '__pycache__', 'dist', 'build'}
         
         for root, dirs, files in os.walk(self.repo_path):
-            # Modify dirs in-place to skip unwanted ones
-            dirs[:] = [d for d in dirs if d not in skip_dirs]
+            # Modify dirs in-place to skip unwanted ones and any hidden directories (starting with '.')
+            dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith('.')]
             
             rel_path = os.path.relpath(root, self.repo_path)
             if rel_path == '.':

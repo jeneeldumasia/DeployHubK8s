@@ -61,6 +61,28 @@ def test_detect_unknown_empty_dir(tmp_path):
     assert project_type == "unknown"
 
 
+def test_repo_analyzer_ignores_hidden_dirs(tmp_path):
+    from utils.analyzer import RepoAnalyzer
+    import json
+
+    _make_repo(tmp_path, {
+        "package.json": json.dumps({"name": "root-app", "scripts": {"start": "node index.js"}}),
+        "frontend/.vite/deps/package.json": json.dumps({"name": "vite-dep-cache"}),
+        "src/client/index.html": "<html></html>",
+    })
+
+    analyzer = RepoAnalyzer(tmp_path, repo_name="my-repo")
+    services = analyzer.analyze()
+
+    # Should find the root app (sre-kpi-generator) and the client static page,
+    # but absolutely MUST NOT find the vite dependency cache in .vite/
+    service_paths = {s.path for s in services}
+    assert "" in service_paths  # Root Node app
+    assert "src/client" in service_paths  # Static client app
+    assert "frontend/.vite/deps" not in service_paths  # Hidden cache directory
+
+
+
 # ── AST check: no bare except in worker.py ───────────────────────────────────
 
 def test_no_bare_except_in_worker():

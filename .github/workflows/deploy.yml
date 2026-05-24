@@ -97,12 +97,13 @@ jobs:
             --label "org.opencontainers.image.title=deployhub-backend" \
             --tag $ECR_REGISTRY/$BACKEND_IMAGE:${{ steps.tag.outputs.tag }} \
             --tag $ECR_REGISTRY/$BACKEND_IMAGE:latest \
+            --tag deployhub-backend:scan \
             ./backend
 
       - name: Scan backend (Trivy → SARIF)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ steps.tag.outputs.tag }}
+          image-ref: deployhub-backend:scan
           format: sarif
           output: trivy-backend.sarif
           severity: CRITICAL,HIGH
@@ -132,12 +133,13 @@ jobs:
             --label "org.opencontainers.image.title=deployhub-frontend" \
             --tag $ECR_REGISTRY/$FRONTEND_IMAGE:${{ steps.tag.outputs.tag }} \
             --tag $ECR_REGISTRY/$FRONTEND_IMAGE:latest \
+            --tag deployhub-frontend:scan \
             ./frontend
 
       - name: Scan frontend (Trivy → SARIF)
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.ECR_REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tag.outputs.tag }}
+          image-ref: deployhub-frontend:scan
           format: sarif
           output: trivy-frontend.sarif
           severity: CRITICAL,HIGH

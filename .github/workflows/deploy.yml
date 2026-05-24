@@ -368,6 +368,8 @@ jobs:
             sed -i '/cloudflared.yaml/d' /home/ubuntu/k8s_deploy/overlays/k3s/kustomization.yaml
           fi
 
+          kubectl apply -f /home/ubuntu/k8s_deploy/base/namespace.yaml
+
           # If MongoDB deployment exists, check if auth is failing due to an uninitialized data volume
           if kubectl get deployment mongodb -n deployhub &>/dev/null; then
             echo "Checking MongoDB authentication status..."
@@ -558,6 +560,7 @@ jobs:
 
       - name: Apply manifests to EKS
         run: |
+          kubectl apply -f k8s_rendered/base/namespace.yaml
           kubectl apply -k k8s_rendered/overlays/eks
 
       - name: Wait for rollout

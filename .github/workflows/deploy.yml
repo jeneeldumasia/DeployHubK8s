@@ -89,6 +89,10 @@ jobs:
       - name: Build backend
         run: |
           docker build \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --label "org.opencontainers.image.title=deployhub-backend" \
             --tag $ECR_REGISTRY/$BACKEND_IMAGE:${{ steps.tag.outputs.tag }} \
             --tag $ECR_REGISTRY/$BACKEND_IMAGE:latest \
             ./backend
@@ -359,13 +363,13 @@ jobs:
       - name: Smoke test
         run: |
           EC2_IP=${{ steps.tf.outputs.ec2_ip }}
+          chmod +x scripts/smoke_test.sh
+          # Retry wrapper — give the backend up to 2.5 min to become healthy
           for i in $(seq 1 15); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$EC2_IP:3081/health || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "✅ Healthy (HTTP $STATUS)"
+            if bash scripts/smoke_test.sh "http://$EC2_IP:3081"; then
               exit 0
             fi
-            echo "Attempt $i/15 — HTTP $STATUS, retrying in 10s..."
+            echo "Attempt $i/15 — retrying in 10s..."
             sleep 10
           done
           exit 1
@@ -508,13 +512,12 @@ jobs:
       - name: Smoke test
         run: |
           ALB=${{ steps.tf.outputs.alb_dns }}
+          chmod +x scripts/smoke_test.sh
           for i in $(seq 1 12); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$ALB/health || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "✅ Backend healthy (HTTP $STATUS)"
+            if bash scripts/smoke_test.sh "http://$ALB"; then
               exit 0
             fi
-            echo "Attempt $i/12 — HTTP $STATUS, retrying in 10s..."
+            echo "Attempt $i/12 — retrying in 10s..."
             sleep 10
           done
           echo "❌ Backend did not become healthy"

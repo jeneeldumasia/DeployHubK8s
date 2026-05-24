@@ -1,4 +1,4 @@
-name: CI — Lint & Build Check
+name: CI — Lint, Test & Build Check
 
 on:
   pull_request:
@@ -11,10 +11,10 @@ on:
 
 jobs:
   # ────────────────────────────────────────────────────────────────────────────
-  # Validate backend — lint + import check
+  # Backend — lint + pytest
   # ────────────────────────────────────────────────────────────────────────────
   backend-lint:
-    name: Backend — Lint
+    name: Backend — Lint & Test
     runs-on: ubuntu-latest
 
     steps:
@@ -35,6 +35,15 @@ jobs:
       - name: Ruff lint
         run: ruff check backend/ --output-format=github
 
+      - name: Run backend tests
+        run: |
+          cd backend
+          pytest tests/ -v --tb=short
+        env:
+          MONGO_URI: mongodb://localhost:27017/test
+          PUBLIC_BASE_URL: http://localhost
+          DEPLOYMENT_MODE: k8s
+
       - name: Check imports resolve
         run: python -c "import sys; sys.path.insert(0, 'backend'); import main"
         env:
@@ -43,7 +52,7 @@ jobs:
           DEPLOYMENT_MODE: k8s
 
   # ────────────────────────────────────────────────────────────────────────────
-  # Validate frontend — install + build
+  # Frontend — install + build
   # ────────────────────────────────────────────────────────────────────────────
   frontend-build:
     name: Frontend — Build
@@ -68,11 +77,13 @@ jobs:
         working-directory: frontend
 
   # ────────────────────────────────────────────────────────────────────────────
-  # Validate Docker images build without errors
+  # Docker — build + Trivy SARIF scan → GitHub Security tab
   # ────────────────────────────────────────────────────────────────────────────
   docker-build:
-    name: Docker — Build images
+    name: Docker — Build & Scan
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # required to upload SARIF
 
     steps:
       - uses: actions/checkout@v5
@@ -88,6 +99,26 @@ jobs:
           tags: deployhub-backend:pr-${{ github.event.pull_request.number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=deployhub-backend
+
+      - name: Scan backend with Trivy (SARIF)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: deployhub-backend:pr-${{ github.event.pull_request.number }}
+          format: sarif
+          output: trivy-backend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"   # warn only on PRs; deploy.yml blocks on main
+
+      - name: Upload backend SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-backend.sarif
+          category: trivy-backend
 
       - name: Build frontend image (no push)
         uses: docker/build-push-action@v6
@@ -97,9 +128,29 @@ jobs:
           tags: deployhub-frontend:pr-${{ github.event.pull_request.number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=deployhub-frontend
+
+      - name: Scan frontend with Trivy (SARIF)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: deployhub-frontend:pr-${{ github.event.pull_request.number }}
+          format: sarif
+          output: trivy-frontend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"
+
+      - name: Upload frontend SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-frontend.sarif
+          category: trivy-frontend
 
   # ────────────────────────────────────────────────────────────────────────────
-  # Validate Terraform formatting
+  # Terraform — format + validate
   # ────────────────────────────────────────────────────────────────────────────
   terraform-validate:
     name: Terraform — Format & Validate

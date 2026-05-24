@@ -82,7 +82,7 @@ resource "aws_security_group" "deployhub_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["1.2.3.4/32"] # REPLACE_WITH_VPN_CIDR
   }
 
   # Frontend HTTP
@@ -98,7 +98,7 @@ resource "aws_security_group" "deployhub_sg" {
     from_port   = 6443
     to_port     = 6443
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["1.2.3.4/32"] # REPLACE_WITH_VPN_CIDR
   }
 
   # Deployed Apps Port Range (Internal)

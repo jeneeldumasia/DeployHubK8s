@@ -1,15 +1,4 @@
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: backend-data-pvc
-  namespace: deployhub
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 20Gi
----
+
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -53,9 +42,9 @@ metadata:
   name: backend
   namespace: deployhub
 spec:
-  replicas: 1
+  replicas: 2
   strategy:
-    type: Recreate
+    type: RollingUpdate
   selector:
     matchLabels:
       app: deployhub-backend
@@ -122,8 +111,8 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: "250m"
-              memory: "512Mi"
+              cpu: "500m"
+              memory: "1Gi"
             limits:
               cpu: "2000m"
               memory: "2Gi"
@@ -148,8 +137,7 @@ spec:
               mountPath: /data
       volumes:
         - name: backend-data
-          persistentVolumeClaim:
-            claimName: backend-data-pvc
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -177,7 +165,7 @@ metadata:
   name: backend-pdb
   namespace: deployhub
 spec:
-  minAvailable: 1
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: deployhub-backend

@@ -1,3 +1,5 @@
+import { copyToClipboard } from "../utils/clipboard";
+
 export default function ProjectsPage({
   projects,
   selectedProjectId,
@@ -120,11 +122,10 @@ export default function ProjectsPage({
                   <button
                     type="button"
                     className="copy-button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(
-                        `http://${window.location.hostname}:3081/api/webhooks/github/${projectForActions.id}`
-                      );
-                      alert("Webhook URL copied!");
+                    onClick={async () => {
+                      const url = `http://${window.location.hostname}:3081/api/webhooks/github/${projectForActions.id}`;
+                      const ok = await copyToClipboard(url);
+                      if (ok) alert("Webhook URL copied!");
                     }}
                   >
                     Copy

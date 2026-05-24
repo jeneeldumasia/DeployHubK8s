@@ -1,15 +1,17 @@
 import { useState } from "react";
+import { copyToClipboard } from "../utils/clipboard";
 
 function CopyButton({ lines, label }) {
   const [copied, setCopied] = useState(false);
 
-  function handleCopy() {
+  async function handleCopy() {
     const text = lines?.join("\n") || "";
     if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    }
   }
 
   return (

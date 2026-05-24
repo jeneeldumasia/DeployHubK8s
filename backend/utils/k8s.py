@@ -21,14 +21,20 @@ def _get_k8s_client() -> client.CoreV1Api:
 
 
 def _ensure_apps_namespace_sync() -> None:
+    """Best-effort namespace check. Namespace is provisioned by kustomize; SA may lack get/create."""
     v1 = _get_k8s_client()
     ns = _user_namespace()
     try:
         v1.read_namespace(ns)
     except ApiException as e:
-        if e.status != 404:
+        if e.status == 404:
+            try:
+                v1.create_namespace(client.V1Namespace(metadata=client.V1ObjectMeta(name=ns)))
+            except ApiException as create_err:
+                if create_err.status not in (403, 409):
+                    raise
+        elif e.status != 403:
             raise
-        v1.create_namespace(client.V1Namespace(metadata=client.V1ObjectMeta(name=ns)))
 
 
 def _create_pod_sync(name: str, image: str, port: int, node_port: int = None, env_vars: dict = None) -> dict:

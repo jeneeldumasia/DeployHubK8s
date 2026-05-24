@@ -352,6 +352,12 @@ jobs:
             --docker-username=AWS \
             --docker-password="\$ECR_PASSWORD" \
             --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret docker-registry ecr-private-key \
+            --namespace deployhub-apps \
+            --docker-server=$ECR_REGISTRY \
+            --docker-username=AWS \
+            --docker-password="\$ECR_PASSWORD" \
+            --dry-run=client -o yaml | kubectl apply -f -
 
           # Cloudflare Tunnel credentials secret
           # Only created if CLOUDFLARE secrets are configured — skipped otherwise

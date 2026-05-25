@@ -60,10 +60,17 @@ jobs:
           cd terraform/environments/${{ github.event.inputs.environment }}
           terraform destroy -auto-approve -input=false -lock=false
 
-      - name: Delete ECR Repositories
+      - name: Delete ECR Repositories and S3 State Bucket
         if: ${{ github.event.inputs.delete_ecr == 'true' }}
         run: |
           for repo in deployhub-backend deployhub-frontend deployhub-apps; do
             echo "Deleting repository $repo..."
             aws ecr delete-repository --repository-name $repo --force --region $AWS_REGION || true
           done
+          
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET="deployhub-tfstate-${ACCOUNT_ID}"
+          
+          echo "Emptying and deleting state bucket $BUCKET..."
+          aws s3 rm s3://$BUCKET --recursive || true
+          aws s3api delete-bucket --bucket $BUCKET --region $AWS_REGION || true

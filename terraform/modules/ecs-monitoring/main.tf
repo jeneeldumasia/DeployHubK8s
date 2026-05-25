@@ -381,7 +381,10 @@ resource "aws_service_discovery_service" "mimir" {
   dns_config {
     namespace_id   = aws_service_discovery_private_dns_namespace.monitoring.id
     routing_policy = "MULTIVALUE"
-    dns_records { ttl = 10; type = "A" }
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
   }
   health_check_custom_config { failure_threshold = 1 }
 }
@@ -391,7 +394,10 @@ resource "aws_service_discovery_service" "loki" {
   dns_config {
     namespace_id   = aws_service_discovery_private_dns_namespace.monitoring.id
     routing_policy = "MULTIVALUE"
-    dns_records { ttl = 10; type = "A" }
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
   }
   health_check_custom_config { failure_threshold = 1 }
 }
@@ -401,7 +407,10 @@ resource "aws_service_discovery_service" "prometheus" {
   dns_config {
     namespace_id   = aws_service_discovery_private_dns_namespace.monitoring.id
     routing_policy = "MULTIVALUE"
-    dns_records { ttl = 10; type = "A" }
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
   }
   health_check_custom_config { failure_threshold = 1 }
 }

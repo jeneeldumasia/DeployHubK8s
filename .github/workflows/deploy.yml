@@ -35,6 +35,9 @@ concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: write
+
 env:
   AWS_REGION: us-east-1
   ECR_REGISTRY: ""  # resolved dynamically from AWS credentials
@@ -204,7 +207,7 @@ jobs:
     needs: build-and-push
     if: |
       github.ref == 'refs/heads/main' &&
-      (github.event.inputs.environment == 'k3s' || github.event.inputs.environment == '')
+      github.event.inputs.environment == 'k3s'
     environment: production
 
     steps:
@@ -492,7 +495,7 @@ jobs:
     needs: build-and-push
     if: |
       github.ref == 'refs/heads/main' &&
-      github.event.inputs.environment == 'eks'
+      (github.event.inputs.environment == 'eks' || github.event.inputs.environment == '')
     environment: production
 
     steps:

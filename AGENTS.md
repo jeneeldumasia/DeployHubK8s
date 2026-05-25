@@ -78,3 +78,7 @@ git push origin main
 | `1879bbd` | **Grafana PVC Fix**: Relocated provisioning mounts to `/etc/grafana/dashboards/` to avoid `subPath` volume lockups. |
 | `e9dee6c` | **Observability Feature**: Added metrics-server, anonymous Grafana viewer access, Loki logging dropdown variables, and enhanced MonitoringPage UI. |
 | `f7c4718` | **Node start fix**: Served built production distributions via `npx serve -s` rather than running dev servers in containerized user apps. |
+| `0ef756b` | **CI Race Condition Fix**: Added a sleep delay in the deploy script to allow ArgoCD to fetch manifests and update deployments, preventing immediate `kubectl rollout status` failure due to stale `ProgressDeadlineExceeded` state. |
+| `ad8afd2` | **KodeKloud Constraint Fix**: Enforced `standard` CPU credits (`cpu_credits = "standard"`) on all Terraform AWS instances/launch templates to prevent session suspension from `unlimited` t3 default mode. |
+| `554c7bd` | **Resource Starvation Fix**: Decreased backend pod CPU/memory requests to `50m` / `128Mi` to resolve rolling update deadlocks on constrained `t3.medium` instances during ArgoCD syncs. |
+| `a13c156` | **Pipeline DB Verification Fix**: Switched MongoDB initialization check in CI to query `statefulset/mongodb` instead of `deployment/mongodb` and updated the referenced PVC name. |

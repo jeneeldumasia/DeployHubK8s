@@ -205,7 +205,7 @@ data:
         folder: DeployHub
         type: file
         options:
-          path: /var/lib/grafana/dashboards
+          path: /etc/grafana/dashboards
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -387,7 +387,7 @@ spec:
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
             - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
-              value: "/var/lib/grafana/dashboards/deployhub.json"
+              value: "/etc/grafana/dashboards/deployhub/deployhub.json"
             # Allow anonymous read-only access so users can click through from DeployHub UI
             - name: GF_AUTH_ANONYMOUS_ENABLED
               value: "true"
@@ -410,11 +410,9 @@ spec:
             - name: grafana-dashboards-provider
               mountPath: /etc/grafana/provisioning/dashboards
             - name: grafana-dashboard-deployhub
-              mountPath: /var/lib/grafana/dashboards/deployhub.json
-              subPath: deployhub.json
+              mountPath: /etc/grafana/dashboards/deployhub
             - name: grafana-dashboard-app-overview
-              mountPath: /var/lib/grafana/dashboards/app-overview.json
-              subPath: app-overview.json
+              mountPath: /etc/grafana/dashboards/app-overview
           livenessProbe:
             httpGet:
               path: /api/health

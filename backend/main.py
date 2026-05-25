@@ -646,7 +646,7 @@ async def get_system_endpoint() -> SystemResponse:
         except Exception:
             mongodb_available = False
         if settings.deployment_mode == "k8s":
-            running, env_ok = await asyncio.gather(count_running_deployhub_pods(), check_k8s_available())
+            running, env_ok = await asyncio.gather(count_running_deployhub_deployments(), check_k8s_available())
         else:
             running, env_ok = await asyncio.gather(count_running_deployhub_containers(), check_docker_available())
         project_count = await count_projects()

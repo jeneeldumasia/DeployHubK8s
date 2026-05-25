@@ -67,3 +67,4 @@ setup_registry.bat
 *.json
 !package.json
 !package-lock.json
+sre-kpi-generator/

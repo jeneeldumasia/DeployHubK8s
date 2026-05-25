@@ -176,13 +176,13 @@ class DeploymentWorker:
                             context_path=str(build_context),
                             on_line=record_log,
                         ),
-                        timeout=settings.build_timeout_seconds,
+                        timeout=settings.buildkit_timeout_seconds,
                     )
                 except asyncio.TimeoutError:
                     log_event(
                         "build_timeout",
                         project_id=project_id,
-                        timeout=settings.build_timeout_seconds,
+                        timeout=settings.buildkit_timeout_seconds,
                     )
                     await update_project(project_id, {
                         "status": "failed",
@@ -192,7 +192,7 @@ class DeploymentWorker:
                         ),
                     })
                     await record_log(
-                        f"[ERROR] Build timed out after {settings.build_timeout_seconds}s"
+                        f"[ERROR] Build timed out after {settings.buildkit_timeout_seconds}s"
                     )
                     return
                 if build_result["logs"]:
@@ -788,12 +788,12 @@ class DeploymentWorker:
           2. Probe the app via HTTP — retries with exponential backoff (1s, 1.5s, 2.25s…).
         Raises RuntimeError on failure so the caller can trigger rollback.
         """
-        await record_log("⏳ Waiting for pod to reach Running state...")
-        pod_result = await wait_for_pod_running(pod_name, timeout_seconds=pod_ready_timeout)
+        await record_log("⏳ Waiting for deployment to reach Running state...")
+        pod_result = await wait_for_deployment_running(pod_name, timeout_seconds=pod_ready_timeout)
         if pod_result["status"] != "running":
             reason = pod_result.get("reason", "unknown")
             deployhub_health_check_failures_total.labels(reason="pod_not_ready").inc()
-            raise RuntimeError(f"Pod never became ready: {reason}")
+            raise RuntimeError(f"Deployment never became ready: {reason}")
 
         await record_log("✅ Pod is Running. Probing HTTP endpoint...")
 

@@ -298,18 +298,23 @@ jobs:
           REPLACE_ME_REGISTRY_ADDR: ${{ steps.tf.outputs.apps_ecr }}
           REPLACE_ME_PUBLIC_BASE_URL: "http://${{ steps.tf.outputs.ec2_ip }}:3081"
           REPLACE_ME_GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
-          BACKEND_SA_ROLE_ARN: ""
-          TUNNEL_ID: ${{ secrets.CLOUDFLARE_TUNNEL_ID }}
         run: |
           cp -r k8s_deploy/ k8s_rendered/
-          sed -i "s|deployhub-backend:latest|$ECR_REGISTRY/$BACKEND_IMAGE:$IMAGE_TAG|g" k8s_rendered/base/backend.yaml
-          sed -i "s|deployhub-frontend:latest|$ECR_REGISTRY/$FRONTEND_IMAGE:$IMAGE_TAG|g" k8s_rendered/base/frontend.yaml
-          sed -i "s|http://3.95.33.38|http://$EC2_IP|g" k8s_rendered/base/backend.yaml
-          sed -i 's|\${BACKEND_SA_ROLE_ARN}||g' k8s_rendered/base/backend.yaml
           envsubst < k8s_deploy/base/secrets.yaml > k8s_rendered/base/secrets.yaml
-          if [ -n "$TUNNEL_ID" ]; then
-            envsubst '${TUNNEL_ID}' < k8s_deploy/overlays/k3s/cloudflared.yaml > k8s_rendered/overlays/k3s/cloudflared.yaml
-          fi
+
+      - name: Update image tags in Git & Push (GitOps)
+        env:
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
+          ECR_REGISTRY: ${{ needs.build-and-push.outputs.ecr-registry }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          cd k8s_deploy/overlays/k3s
+          kustomize edit set image deployhub-backend=$ECR_REGISTRY/$BACKEND_IMAGE:$IMAGE_TAG
+          kustomize edit set image deployhub-frontend=$ECR_REGISTRY/$FRONTEND_IMAGE:$IMAGE_TAG
+          git add kustomization.yaml
+          git commit -m "chore(deploy): update image tags to $IMAGE_TAG [skip ci]" || echo "No changes to commit"
+          git push origin main || echo "No changes to push"
 
       - name: Wait for k3s to be ready on EC2
         run: |
@@ -332,7 +337,7 @@ jobs:
             sleep 10
           done
 
-      - name: Deploy to EC2
+      - name: Deploy via GitOps (ArgoCD)
         env:
           ECR_REGISTRY: ${{ needs.build-and-push.outputs.ecr-registry }}
           CF_TUNNEL_ID: ${{ secrets.CLOUDFLARE_TUNNEL_ID }}
@@ -365,8 +370,7 @@ jobs:
             --docker-password="\$ECR_PASSWORD" \
             --dry-run=client -o yaml | kubectl apply -f -
 
-          # Cloudflare Tunnel credentials secret
-          # Only created if CLOUDFLARE secrets are configured — skipped otherwise
+          # Cloudflare Tunnel credentials secret (GitOps friendly)
           if [ -n "$CF_TUNNEL_ID" ] && [ -n "$CF_CREDENTIALS" ]; then
             kubectl create secret generic cloudflared-credentials \
               --namespace deployhub \
@@ -375,12 +379,16 @@ jobs:
               --dry-run=client -o yaml | kubectl apply -f -
             echo "Cloudflare tunnel credentials applied"
           else
-            echo "CLOUDFLARE_TUNNEL_ID / CLOUDFLARE_TUNNEL_CREDENTIALS not set — skipping tunnel"
-            rm -f /home/ubuntu/k8s_deploy/overlays/k3s/cloudflared.yaml
-            sed -i '/cloudflared.yaml/d' /home/ubuntu/k8s_deploy/overlays/k3s/kustomization.yaml
+            echo "CLOUDFLARE_TUNNEL_ID / CLOUDFLARE_TUNNEL_CREDENTIALS not set — deploying placeholder secret"
+            kubectl create secret generic cloudflared-credentials \
+              --namespace deployhub \
+              --from-literal=tunnel-id="dummy-tunnel-id" \
+              --from-literal=credentials.json="dummy-credentials" \
+              --dry-run=client -o yaml | kubectl apply -f -
           fi
 
           kubectl apply -f /home/ubuntu/k8s_deploy/base/namespace.yaml
+          kubectl apply -f /home/ubuntu/k8s_deploy/base/secrets.yaml
           kubectl delete service mongodb-service -n deployhub --ignore-not-found=true || true
 
           # If MongoDB deployment exists, check if auth is failing due to an uninitialized data volume
@@ -402,14 +410,25 @@ jobs:
             fi
           fi
 
-          kubectl apply -k /home/ubuntu/k8s_deploy/overlays/k3s
-          kubectl rollout status deployment/backend  -n deployhub --timeout=300s || {
-            echo "=== backend pod describe ==="
-            kubectl describe pod -n deployhub -l app=deployhub-backend
-            echo "=== backend pod logs ==="
-            kubectl logs -n deployhub -l app=deployhub-backend --tail=50 || true
-            exit 1
-          }
+          # ── Install ArgoCD ──
+          echo "Bootstrapping ArgoCD..."
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+          echo "Waiting for ArgoCD controller to be ready..."
+          kubectl rollout status deployment/argocd-server -n argocd --timeout=300s
+
+          # ── Apply GitOps Application ──
+          echo "Applying ArgoCD Application..."
+          kubectl apply -f /home/ubuntu/k8s_deploy/overlays/k3s/argocd-application.yaml
+
+          # ── Trigger GitOps Refresh and Sync ──
+          echo "Refreshing ArgoCD Application..."
+          kubectl patch application deployhub -n argocd --type='merge' -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"normal"}}}'
+
+          # ── Wait for Rollout via ArgoCD Sync ──
+          echo "Waiting for backend/frontend deployments to reconcile..."
+          kubectl rollout status deployment/backend  -n deployhub --timeout=300s
           kubectl rollout status deployment/frontend -n deployhub --timeout=120s
           SCRIPT
 
@@ -579,6 +598,7 @@ jobs:
       - name: Apply manifests to EKS
         run: |
           kubectl apply -f k8s_rendered/base/namespace.yaml
+          kubectl apply -f k8s_rendered/base/secrets.yaml
           kubectl delete service mongodb-service -n deployhub --ignore-not-found=true || true
           kubectl apply -k k8s_rendered/overlays/eks
 

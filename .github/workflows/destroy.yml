@@ -1,0 +1,67 @@
+name: Teardown Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to destroy (k3s or eks)"
+        required: true
+        default: "k3s"
+        type: choice
+        options: [k3s, eks]
+      delete_ecr:
+        description: "Delete ECR Repositories (Will lose all pushed images)"
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  destroy:
+    name: Destroy Infrastructure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.8.5"
+          terraform_wrapper: false
+
+      - name: Initialize Terraform
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET="deployhub-tfstate-${ACCOUNT_ID}"
+          
+          cd terraform/environments/${{ github.event.inputs.environment }}
+          terraform init -input=false \
+            -backend-config="bucket=${BUCKET}" \
+            -backend-config="key=environments/${{ github.event.inputs.environment }}/${ACCOUNT_ID}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}"
+
+      - name: Terraform Destroy
+        run: |
+          cd terraform/environments/${{ github.event.inputs.environment }}
+          terraform destroy -auto-approve -input=false
+
+      - name: Delete ECR Repositories
+        if: ${{ github.event.inputs.delete_ecr == 'true' }}
+        run: |
+          for repo in deployhub-backend deployhub-frontend deployhub-apps; do
+            echo "Deleting repository $repo..."
+            aws ecr delete-repository --repository-name $repo --force --region $AWS_REGION || true
+          done

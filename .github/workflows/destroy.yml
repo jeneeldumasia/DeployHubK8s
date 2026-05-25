@@ -54,6 +54,8 @@ jobs:
             -backend-config="region=${AWS_REGION}"
 
       - name: Terraform Destroy
+        env:
+          TF_VAR_grafana_admin_password: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
         run: |
           cd terraform/environments/${{ github.event.inputs.environment }}
           terraform force-unlock -force cdcc1ed7-62bf-ed45-1054-807252399a2b || true

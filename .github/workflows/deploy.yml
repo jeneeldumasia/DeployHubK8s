@@ -389,7 +389,7 @@ jobs:
 
           kubectl apply -f /home/ubuntu/k8s_deploy/base/namespace.yaml
           kubectl apply -f /home/ubuntu/k8s_deploy/base/secrets.yaml
-          kubectl delete service mongodb-service -n deployhub --ignore-not-found=true || true
+          kubectl delete service mongodb -n deployhub --ignore-not-found=true || true
 
           # If MongoDB deployment exists, check if auth is failing due to an uninitialized data volume
           if kubectl get statefulset mongodb -n deployhub &>/dev/null; then

@@ -496,11 +496,39 @@ class DeploymentWorker:
     async def _generated_dockerfile_contents(self, project_type: str, metadata: dict, repo_path: Path, project: dict, record_log) -> str:
         if project_type == "node":
             scripts = metadata.get("node_scripts", {})
+
+            # Resolve install + build commands (package-manager aware)
+            if project.get("install_command"):
+                install_command = project["install_command"]
+                default_build = "npm run build"
+            elif metadata.get("has_yarn_lock"):
+                install_command = "yarn install --frozen-lockfile"
+                default_build = "yarn build"
+            elif metadata.get("has_pnpm_lock"):
+                install_command = "npm install -g pnpm && pnpm install --frozen-lockfile"
+                default_build = "pnpm build"
+            elif metadata.get("has_package_lock"):
+                install_command = "npm ci"
+                default_build = "npm run build"
+            else:
+                install_command = "npm install"
+                default_build = "npm run build"
+
+            has_build_step = bool(project.get("build_command") or "build" in scripts)
+            build_command = project.get("build_command") or (default_build if has_build_step else None)
+
+            # Resolve the start command:
+            #   user override > explicit start script > built app (serve dist/) > dev server
             if project.get("start_command"):
                 command = project["start_command"]
             elif "start" in scripts:
                 command = "npm run start"
+            elif has_build_step:
+                # App produces static dist/ — serve it correctly as a SPA.
+                # `serve -s` enables SPA fallback routing; honours $PORT.
+                command = "npx serve -s dist -l ${PORT}"
             elif "dev" in scripts:
+                # No build output; dev server is the only option.
                 command = "npm run dev -- --host 0.0.0.0 --port ${PORT}"
             else:
                 # No scripts defined — fall back to direct node execution
@@ -511,32 +539,13 @@ class DeploymentWorker:
                 else:
                     raise RuntimeError("No supported Node start command found. Add a Dockerfile or define start/dev scripts.")
 
-            # Use the lock file that actually exists
-            if project.get("install_command"):
-                install_command = project["install_command"]
-            elif metadata.get("has_yarn_lock"):
-                install_command = "yarn install --frozen-lockfile"
-                build_command = "yarn build"
-            elif metadata.get("has_pnpm_lock"):
-                install_command = "npm install -g pnpm && pnpm install --frozen-lockfile"
-                build_command = "pnpm build"
-            elif metadata.get("has_package_lock"):
-                install_command = "npm ci"
-                build_command = "npm run build"
-            else:
-                install_command = "npm install"
-                build_command = "npm run build"
-
-            if project.get("build_command"):
-                build_command = project["build_command"]
-
             dockerfile_lines = [
                 "FROM node:20-alpine",
                 "WORKDIR /app",
                 "COPY . .",
                 f"RUN {install_command}",
             ]
-            if project.get("build_command") or "build" in scripts:
+            if build_command:
                 dockerfile_lines.append(f"RUN {build_command}")
 
             dockerfile_lines.extend(

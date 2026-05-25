@@ -294,7 +294,7 @@ jobs:
           REPLACE_ME_MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
           MONGO_ROOT_USER: root
           MONGO_ROOT_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
-          REPLACE_ME_MONGO_URI: "mongodb://root:${{ secrets.MONGO_PASSWORD }}@mongodb-service:27017/deployhub?authSource=admin"
+          REPLACE_ME_MONGO_URI: "mongodb://root:${{ secrets.MONGO_PASSWORD }}@mongodb:27017/deployhub?authSource=admin"
           REPLACE_ME_REGISTRY_ADDR: ${{ steps.tf.outputs.apps_ecr }}
           REPLACE_ME_PUBLIC_BASE_URL: "http://${{ steps.tf.outputs.ec2_ip }}:3081"
           REPLACE_ME_GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
@@ -431,7 +431,13 @@ jobs:
           sleep 15
           
           echo "Waiting for backend/frontend deployments to reconcile..."
-          kubectl rollout status deployment/backend  -n deployhub --timeout=600s || { echo "Retrying backend rollout status..."; sleep 10; kubectl rollout status deployment/backend  -n deployhub --timeout=600s; }
+          if ! kubectl rollout status deployment/backend -n deployhub --timeout=600s; then
+            echo "❌ Backend rollout failed! Fetching logs and events for debugging..."
+            kubectl describe pods -l app=deployhub-backend -n deployhub
+            kubectl logs -l app=deployhub-backend -n deployhub --all-containers --tail=100 || true
+            kubectl logs -l app=deployhub-backend -n deployhub --all-containers --previous --tail=100 || true
+            exit 1
+          fi
           kubectl rollout status deployment/frontend -n deployhub --timeout=120s
           SCRIPT
 
@@ -586,7 +592,7 @@ jobs:
           REPLACE_ME_MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
           MONGO_ROOT_USER: root
           MONGO_ROOT_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
-          REPLACE_ME_MONGO_URI: "mongodb://root:${{ secrets.MONGO_PASSWORD }}@mongodb-service:27017/deployhub?authSource=admin"
+          REPLACE_ME_MONGO_URI: "mongodb://root:${{ secrets.MONGO_PASSWORD }}@mongodb:27017/deployhub?authSource=admin"
           REPLACE_ME_REGISTRY_ADDR: ${{ steps.tf.outputs.ecr_apps }}
           REPLACE_ME_PUBLIC_BASE_URL: "http://${{ steps.tf.outputs.alb_dns }}"
         run: |
@@ -602,12 +608,18 @@ jobs:
         run: |
           kubectl apply -f k8s_rendered/base/namespace.yaml
           kubectl apply -f k8s_rendered/base/secrets.yaml
-          kubectl delete service mongodb-service -n deployhub --ignore-not-found=true || true
+          kubectl delete service mongodb -n deployhub --ignore-not-found=true || true
           kubectl apply -k k8s_rendered/overlays/eks
 
       - name: Wait for rollout
         run: |
-          kubectl rollout status deployment/backend  -n deployhub --timeout=180s
+          if ! kubectl rollout status deployment/backend -n deployhub --timeout=180s; then
+            echo "❌ Backend rollout failed! Fetching logs and events for debugging..."
+            kubectl describe pods -l app=deployhub-backend -n deployhub
+            kubectl logs -l app=deployhub-backend -n deployhub --all-containers --tail=100 || true
+            kubectl logs -l app=deployhub-backend -n deployhub --all-containers --previous --tail=100 || true
+            exit 1
+          fi
           kubectl rollout status deployment/frontend -n deployhub --timeout=90s
 
       - name: Smoke test

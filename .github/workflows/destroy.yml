@@ -74,12 +74,12 @@ jobs:
           echo "Emptying and deleting versioned state bucket $BUCKET..."
           pip install boto3 --quiet
           python3 -c "
-import boto3, os
-try:
-    bucket = boto3.resource('s3').Bucket(os.environ['BUCKET'])
-    bucket.object_versions.delete()
-    bucket.delete()
-    print('Successfully deleted versioned bucket.')
-except Exception as e:
-    print('Notice:', e)
-"
+          import boto3, os
+          try:
+              bucket = boto3.resource('s3').Bucket(os.environ['BUCKET'])
+              bucket.object_versions.delete()
+              bucket.delete()
+              print('Successfully deleted versioned bucket.')
+          except Exception as e:
+              print('Notice:', e)
+          "

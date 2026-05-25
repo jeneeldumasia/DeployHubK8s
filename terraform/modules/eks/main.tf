@@ -73,6 +73,13 @@ resource "aws_eks_cluster" "main" {
   tags = merge(var.tags, { Name = "${var.project}-eks" })
 }
 
+resource "aws_launch_template" "eks_node" {
+  name_prefix = "${var.project}-eks-lt"
+  credit_specification {
+    cpu_credits = "standard"
+  }
+}
+
 # ── EKS Managed Node Groups (one per AZ for HA) ───────────────────────────────
 resource "aws_eks_node_group" "main" {
   count           = length(var.availability_zones)
@@ -85,6 +92,11 @@ resource "aws_eks_node_group" "main" {
 
   instance_types = [var.node_instance_type]
   disk_size      = 30
+
+  launch_template {
+    id      = aws_launch_template.eks_node.id
+    version = aws_launch_template.eks_node.latest_version
+  }
 
   scaling_config {
     desired_size = var.node_desired_size

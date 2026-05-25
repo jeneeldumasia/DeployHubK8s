@@ -183,6 +183,10 @@ resource "aws_instance" "k3s_node" {
     sed -i "s/127.0.0.1/$PUBLIC_IP/g" /home/ubuntu/.kube/config
   EOF
 
+  credit_specification {
+    cpu_credits = "standard"
+  }
+
   tags = {
     Name = "deployhub-k3s-node"
   }

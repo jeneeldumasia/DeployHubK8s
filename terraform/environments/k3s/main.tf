@@ -143,6 +143,10 @@ resource "aws_instance" "k3s" {
     sed -i "s/127.0.0.1/$PUBLIC_IP/g" /home/ubuntu/.kube/config
   EOF
 
+  credit_specification {
+    cpu_credits = "standard"
+  }
+
   tags = merge(local.tags, { Name = "${local.project}-k3s-node" })
 }
 

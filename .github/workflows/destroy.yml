@@ -69,8 +69,17 @@ jobs:
           done
           
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          BUCKET="deployhub-tfstate-${ACCOUNT_ID}"
+          export BUCKET="deployhub-tfstate-${ACCOUNT_ID}"
           
-          echo "Emptying and deleting state bucket $BUCKET..."
-          aws s3 rm s3://$BUCKET --recursive || true
-          aws s3api delete-bucket --bucket $BUCKET --region $AWS_REGION || true
+          echo "Emptying and deleting versioned state bucket $BUCKET..."
+          pip install boto3 --quiet
+          python3 -c "
+import boto3, os
+try:
+    bucket = boto3.resource('s3').Bucket(os.environ['BUCKET'])
+    bucket.object_versions.delete()
+    bucket.delete()
+    print('Successfully deleted versioned bucket.')
+except Exception as e:
+    print('Notice:', e)
+"

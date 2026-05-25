@@ -82,3 +82,8 @@ git push origin main
 | `ad8afd2` | **KodeKloud Constraint Fix**: Enforced `standard` CPU credits (`cpu_credits = "standard"`) on all Terraform AWS instances/launch templates to prevent session suspension from `unlimited` t3 default mode. |
 | `554c7bd` | **Resource Starvation Fix**: Decreased backend pod CPU/memory requests to `50m` / `128Mi` to resolve rolling update deadlocks on constrained `t3.medium` instances during ArgoCD syncs. |
 | `a13c156` | **Pipeline DB Verification Fix**: Switched MongoDB initialization check in CI to query `statefulset/mongodb` instead of `deployment/mongodb` and updated the referenced PVC name. |
+| `6c95789` | **Free Tier Upgrade**: Upgraded EC2 instance types to `m7i-flex.large` (8GB RAM) and removed T-series CPU credit specifications. |
+| `27e6274` | **MongoDB Connection Fix**: Fixed hardcoded `MONGO_URI` in CI to point to the renamed `mongodb` headless service and added debug logs. |
+| `ee2b0e0` | **GitOps Permission Fix**: Added `permissions: contents: write` to the CI workflow to allow `kustomize` image tag updates to successfully push back to Git, and set `eks` as the default deployment environment. |
+| `db1a17e` | **Terraform Syntax Fix**: Corrected an HCL parser error in the `ecs-monitoring` module by expanding single-line `dns_records` into multi-line blocks. |
+| `3255098` | **EKS AMI & Duplicate ECR Fix**: Set `ami_type = "AL2023_x86_64_STANDARD"` to support 7th generation EC2 nodes on EKS 1.29, and removed duplicate ECR module creation from the `prod` state to prevent `RepositoryAlreadyExists` collisions. |

@@ -45,16 +45,7 @@ module "networking" {
   tags               = local.tags
 }
 
-# ── ECR ───────────────────────────────────────────────────────────────────────
-module "ecr" {
-  source = "../../modules/ecr"
-  repository_names = [
-    "deployhub-backend",
-    "deployhub-frontend",
-    "deployhub-apps",
-  ]
-  tags = local.tags
-}
+
 
 # ── EKS ───────────────────────────────────────────────────────────────────────
 module "eks" {

@@ -83,6 +83,7 @@ resource "aws_eks_node_group" "main" {
   # Pin each node group to one AZ — ensures pods spread across AZs
   subnet_ids = [var.private_subnet_ids[count.index]]
 
+  ami_type       = "AL2023_x86_64_STANDARD"
   instance_types = [var.node_instance_type]
   disk_size      = 30
 

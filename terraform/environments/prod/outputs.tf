@@ -17,15 +17,15 @@ output "eks_cluster_endpoint" {
 }
 
 output "ecr_backend_url" {
-  value = module.ecr.repository_urls["deployhub-backend"]
+  value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/deployhub-backend"
 }
 
 output "ecr_frontend_url" {
-  value = module.ecr.repository_urls["deployhub-frontend"]
+  value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/deployhub-frontend"
 }
 
 output "ecr_apps_url" {
-  value = module.ecr.repository_urls["deployhub-apps"]
+  value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/deployhub-apps"
 }
 
 output "alb_controller_role_arn" {

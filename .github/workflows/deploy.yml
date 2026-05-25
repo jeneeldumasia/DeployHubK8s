@@ -562,11 +562,6 @@ jobs:
             sed -i "s/CHANGE_ME_STRONG_PASSWORD/${{ secrets.GRAFANA_ADMIN_PASSWORD }}/" terraform.tfvars
           fi
 
-          # Import existing ECR repos so Terraform doesn't try to recreate them
-          terraform import 'module.ecr.aws_ecr_repository.repos["deployhub-backend"]'  deployhub-backend  2>/dev/null || true
-          terraform import 'module.ecr.aws_ecr_repository.repos["deployhub-frontend"]' deployhub-frontend 2>/dev/null || true
-          terraform import 'module.ecr.aws_ecr_repository.repos["deployhub-apps"]'     deployhub-apps     2>/dev/null || true
-
           terraform apply -auto-approve -input=false
 
           echo "cluster_name=$(terraform output -raw eks_cluster_name)"       >> $GITHUB_OUTPUT

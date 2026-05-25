@@ -87,6 +87,7 @@ jobs:
 
       - name: Grant ECR permissions via assumed role
         run: |
+          ACCOUNT_ID=${{ steps.resolve.outputs.account_id }}
           echo "Creating an IAM role for ECR pushes to bypass KodeKloud user limits..."
           cat <<EOF > trust-policy.json
           {

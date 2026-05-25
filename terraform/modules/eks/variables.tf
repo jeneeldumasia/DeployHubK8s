@@ -31,7 +31,7 @@ variable "availability_zones" {
 
 variable "node_instance_type" {
   type    = string
-  default = "t3.medium"
+  default = "m7i-flex.large"
 }
 
 variable "node_desired_size" {

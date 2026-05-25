@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "instance_type" {
   description = "The EC2 instance type for the k3s node (max medium for playground)"
   type        = string
-  default     = "t3.medium"
+  default     = "m7i-flex.large"
 }
 
 variable "key_name" {

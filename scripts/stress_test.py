@@ -17,7 +17,7 @@ NOTE ON LATENCY:
 Stages:
   0–60s    ramp  0 → 10 workers  (warm up)
   60–180s  hold  25 workers       (sustained)
-  180–240s ramp  25 → 50 workers  (spike — t3.medium limit)
+  180–240s ramp  25 → 50 workers  (spike — m7i-flex.large limit)
   240–300s hold  50 workers       (soak)
   300–360s ramp  50 → 0           (cool down)
 
@@ -52,7 +52,7 @@ TARGETS = [
 STAGES = [
     (60,  10),   # warm up
     (120, 25),   # sustained
-    (60,  50),   # spike  (t3.medium practical limit from remote)
+    (60,  50),   # spike  (m7i-flex.large practical limit from remote)
     (60,  50),   # soak
     (60,  0),    # cool down
 ]

@@ -52,10 +52,10 @@ class Settings(BaseSettings):
             user = quote_plus(self.mongo_root_user)
             password = quote_plus(self.mongo_root_password)
             return (
-                f"mongodb://{user}:{password}@mongodb-service:27017/"
+                f"mongodb://{user}:{password}@mongodb:27017/"
                 f"{self.mongo_db_name}?authSource=admin"
             )
-        return f"mongodb://mongodb-service:27017/{self.mongo_db_name}"
+        return f"mongodb://mongodb:27017/{self.mongo_db_name}"
 
     @property
     def allowed_repo_host_list(self) -> list[str]:

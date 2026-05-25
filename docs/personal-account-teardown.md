@@ -9,7 +9,7 @@
 
 | Resource | Cost if forgotten |
 |---|---|
-| EC2 t3.medium (k3s node) | ~$0.042/hr = ~$30/mo |
+| EC2 m7i-flex.large (k3s/eks node) | ~$0.135/hr = ~$97/mo (Free Tier Eligible) |
 | EBS volume 30GB (attached to EC2) | ~$3/mo |
 | Elastic IP (unattached) | $0.005/hr = ~$3.60/mo |
 | ECR storage (images) | ~$0.10/GB/mo (small but accumulates) |

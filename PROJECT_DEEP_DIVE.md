@@ -238,7 +238,7 @@ Dark/light toggle stored in `localStorage`.
 **What it is**: k3s is a lightweight Kubernetes distribution. One EC2 instance runs the entire cluster.
 
 **Terraform provisions** (`terraform/environments/k3s/`):
-- Ubuntu 22.04 EC2 instance (t3.medium, 30GB gp2 disk)
+- Ubuntu 22.04 EC2 instance (m7i-flex.large, 30GB gp2 disk)
 - k3s installed via `user_data` script on first boot: `curl -sfL https://get.k3s.io | sh -`
 - NodePort range extended to `3000–3999` via `--service-node-port-range`
 - TLS SAN set to public IP so kubectl works remotely

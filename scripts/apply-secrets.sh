@@ -69,7 +69,7 @@ fi
 read -rp "GitHub webhook secret (leave blank to skip): " GITHUB_WEBHOOK_SECRET
 GITHUB_WEBHOOK_SECRET="${GITHUB_WEBHOOK_SECRET:-}"
 
-MONGO_URI="mongodb://${MONGO_ROOT_USER}:${MONGO_PASSWORD}@mongodb-service:27017/deployhub?authSource=admin"
+MONGO_URI="mongodb://${MONGO_ROOT_USER}:${MONGO_PASSWORD}@mongodb:27017/deployhub?authSource=admin"
 
 echo ""
 echo "Applying Secrets and ConfigMap to cluster..."

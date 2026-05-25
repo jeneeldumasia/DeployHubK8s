@@ -56,6 +56,7 @@ jobs:
       - name: Terraform Destroy
         run: |
           cd terraform/environments/${{ github.event.inputs.environment }}
+          terraform force-unlock -force cdcc1ed7-62bf-ed45-1054-807252399a2b || true
           terraform destroy -auto-approve -input=false
 
       - name: Delete ECR Repositories

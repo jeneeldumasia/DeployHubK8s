@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: "Environment to destroy (k3s or eks)"
+        description: "Environment to destroy (k3s or prod)"
         required: true
         default: "k3s"
         type: choice
-        options: [k3s, eks]
+        options: [k3s, prod]
       delete_ecr:
         description: "Delete ECR Repositories (Will lose all pushed images)"
         required: true

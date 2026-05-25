@@ -20,7 +20,7 @@ variable "kubernetes_version" {
 
 variable "node_instance_type" {
   type    = string
-  default = "m7i-flex.large"
+  default = "c7i-flex.large"
 }
 
 variable "node_desired_size" {

@@ -73,6 +73,7 @@ git push origin main
 
 | Commit Hash | Milestone Summary |
 |---|---|
+| `79a34c0` | **ArgoCD Install Fix**: Used `--server-side` apply for `install.yaml` in pipeline to bypass K8s 256KB annotation limits on massive CRDs. |
 | `0f0b8d3` | **GitOps Transition**: Migrated k3s deploy pipeline to pull-based ArgoCD syncing, refactored Cloudflare tunnel configs, and secured bootstrapped secrets. |
 | `1879bbd` | **Grafana PVC Fix**: Relocated provisioning mounts to `/etc/grafana/dashboards/` to avoid `subPath` volume lockups. |
 | `e9dee6c` | **Observability Feature**: Added metrics-server, anonymous Grafana viewer access, Loki logging dropdown variables, and enhanced MonitoringPage UI. |

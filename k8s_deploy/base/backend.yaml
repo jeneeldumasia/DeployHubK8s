@@ -39,6 +39,36 @@ roleRef:
   name: pod-manager
   apiGroup: rbac.authorization.k8s.io
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-manager
+  namespace: deployhub-apps
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "pods/log", "pods/status"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backend-pod-manager
+  namespace: deployhub-apps
+subjects:
+  - kind: ServiceAccount
+    name: backend-sa
+    namespace: deployhub
+roleRef:
+  kind: Role
+  name: pod-manager
+  apiGroup: rbac.authorization.k8s.io
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -570,6 +570,8 @@ jobs:
           echo "ecr_apps=$(terraform output -raw ecr_apps_url)"               >> $GITHUB_OUTPUT
           echo "alb_dns=$(terraform output -raw alb_dns_name)"                >> $GITHUB_OUTPUT
           echo "backend_sa_role=$(terraform output -raw backend_sa_role_arn)" >> $GITHUB_OUTPUT
+          echo "frontend_tg_arn=$(terraform output -raw frontend_tg_arn)"     >> $GITHUB_OUTPUT
+          echo "backend_tg_arn=$(terraform output -raw backend_tg_arn)"       >> $GITHUB_OUTPUT
 
       - name: Configure kubectl for EKS
         run: |
@@ -593,8 +595,12 @@ jobs:
           REPLACE_ME_MONGO_URI: "mongodb://root:${{ secrets.MONGO_PASSWORD }}@mongodb:27017/deployhub?authSource=admin"
           REPLACE_ME_REGISTRY_ADDR: ${{ steps.tf.outputs.ecr_apps }}
           REPLACE_ME_PUBLIC_BASE_URL: "http://${{ steps.tf.outputs.alb_dns }}"
+          FRONTEND_TG_ARN: ${{ steps.tf.outputs.frontend_tg_arn }}
+          BACKEND_TG_ARN: ${{ steps.tf.outputs.backend_tg_arn }}
         run: |
           cp -r k8s_deploy/ k8s_rendered/
+          sed -i "s|\${FRONTEND_TG_ARN}|$FRONTEND_TG_ARN|g" k8s_rendered/overlays/eks/targetgroupbindings.yaml
+          sed -i "s|\${BACKEND_TG_ARN}|$BACKEND_TG_ARN|g" k8s_rendered/overlays/eks/targetgroupbindings.yaml
           sed -i "s|deployhub-backend:latest|$ECR_BACKEND:$IMAGE_TAG|g" k8s_rendered/base/backend.yaml
           sed -i "s|deployhub-frontend:latest|$ECR_FRONTEND:$IMAGE_TAG|g" k8s_rendered/base/frontend.yaml
           sed -i "s|\${BACKEND_SA_ROLE_ARN}|$BACKEND_SA_ROLE_ARN|g" k8s_rendered/base/backend.yaml

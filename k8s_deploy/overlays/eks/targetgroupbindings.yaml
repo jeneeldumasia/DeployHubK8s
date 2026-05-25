@@ -1,0 +1,23 @@
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: frontend-tgb
+  namespace: deployhub
+spec:
+  serviceRef:
+    name: frontend
+    port: 8080
+  targetGroupARN: ${FRONTEND_TG_ARN}
+  targetType: ip
+---
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: backend-tgb
+  namespace: deployhub
+spec:
+  serviceRef:
+    name: backend
+    port: 8000
+  targetGroupARN: ${BACKEND_TG_ARN}
+  targetType: ip

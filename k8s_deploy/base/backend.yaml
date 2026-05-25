@@ -156,7 +156,7 @@ spec:
   ports:
     - port: 8000
       targetPort: 8000
-      nodePort: 3081
+      nodePort: 30081
   type: NodePort   # works on both k3s and EKS (ALB controller ignores type)
 
 ---

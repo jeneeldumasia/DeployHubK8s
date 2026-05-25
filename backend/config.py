@@ -31,7 +31,6 @@ class Settings(BaseSettings):
     apps_namespace: str = "deployhub-apps"
     buildkit_addr: str = "tcp://buildkitd:1234"
     buildkit_timeout_seconds: int = 1800
-    build_timeout_seconds: int = 600
     max_concurrent_builds: int = 3
     registry_addr: str = "registry:5000"
     registry_insecure: bool = False

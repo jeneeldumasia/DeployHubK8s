@@ -83,3 +83,7 @@ jobs:
           except Exception as e:
               print('Notice:', e)
           "
+          
+          TABLE="deployhub-tfstate-lock"
+          echo "Deleting DynamoDB state lock table $TABLE..."
+          aws dynamodb delete-table --table-name $TABLE --region $AWS_REGION || true

@@ -427,8 +427,11 @@ jobs:
           kubectl patch application deployhub -n argocd --type='merge' -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"normal"}}}'
 
           # ── Wait for Rollout via ArgoCD Sync ──
+          echo "Waiting 15s for ArgoCD to fetch and apply manifests..."
+          sleep 15
+          
           echo "Waiting for backend/frontend deployments to reconcile..."
-          kubectl rollout status deployment/backend  -n deployhub --timeout=600s
+          kubectl rollout status deployment/backend  -n deployhub --timeout=600s || { echo "Retrying backend rollout status..."; sleep 10; kubectl rollout status deployment/backend  -n deployhub --timeout=600s; }
           kubectl rollout status deployment/frontend -n deployhub --timeout=120s
           SCRIPT
 

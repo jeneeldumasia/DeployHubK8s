@@ -64,6 +64,7 @@ from utils.k8s import (
     get_all_deployment_restart_counts,
     get_namespace_resources,
     get_deployment_logs,
+    get_pod_status,
 )
 from utils.analyzer import RepoAnalyzer
 from utils.git import GitError, normalize_repo_url, clone_or_update_repo
@@ -694,16 +695,23 @@ async def get_project_health_endpoint(project_id: str) -> dict:
     if settings.deployment_mode != "k8s":
         raise HTTPException(status_code=400, detail="Health endpoint only available in k8s mode")
     container_name = project.get("container_name")
-    if not container_name or project.get("status") not in ("running", "failed"):
+    if not container_name or project.get("status") not in ("running", "failed", "building"):
         return {"project_id": project_id, "status": project.get("status"), "pod": None}
-    from utils.k8s import get_deployment_restart_count
-    restart_count = await get_deployment_restart_count(container_name)
-    deployhub_pod_restarts_total.labels(pod_name=container_name).set(restart_count)
+    pod = await get_pod_status(container_name)
+    deployhub_pod_restarts_total.labels(pod_name=container_name).set(pod["restart_count"])
     return {
         "project_id": project_id,
         "status": project.get("status"),
         "service_url": project.get("service_url"),
-        "pod": {"name": container_name, "restart_count": restart_count},
+        "pod": {
+            "name": container_name,
+            "phase": pod["phase"],
+            "ready": pod["ready"],
+            "restart_count": pod["restart_count"],
+            "cpu": pod["cpu"],
+            "memory": pod["memory"],
+            "events": pod["events"],
+        },
     }
 
 

@@ -167,13 +167,12 @@ data:
 
     scrape_configs:
       # Scrape all pod logs in the deployhub namespace
-      - job_name: kubernetes-pods
+      - job_name: kubernetes-pods-deployhub
         kubernetes_sd_configs:
           - role: pod
             namespaces:
               names: [deployhub]
         pipeline_stages:
-          # Parse JSON log lines emitted by the backend's log_event()
           - json:
               expressions:
                 event: event
@@ -189,7 +188,26 @@ data:
             target_label: app
           - source_labels: [__meta_kubernetes_namespace]
             target_label: namespace
-          # Drop noisy health check logs
+          - source_labels: [__meta_kubernetes_pod_annotation_promtail_ignore]
+            action: drop
+            regex: "true"
+
+      # Scrape user app pod logs in the deployhub-apps namespace
+      - job_name: kubernetes-pods-deployhub-apps
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [deployhub-apps]
+        pipeline_stages:
+          - labels:
+              app:
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: app
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
           - source_labels: [__meta_kubernetes_pod_annotation_promtail_ignore]
             action: drop
             regex: "true"

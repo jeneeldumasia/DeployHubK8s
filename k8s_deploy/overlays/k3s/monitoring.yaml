@@ -22,6 +22,25 @@ data:
         static_configs:
           - targets: ['localhost:9090']
 
+      # Scrape user-app pods in deployhub-apps via kubernetes service discovery
+      - job_name: deployhub-apps
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [deployhub-apps]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: app
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_ip, __meta_kubernetes_pod_container_port_number]
+            separator: ':'
+            target_label: __address__
+          # Only scrape pods that explicitly opt-in via annotation
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+
     # Alert rules file (loaded from ConfigMap below)
     rule_files:
       - /etc/prometheus/alerts.yml
@@ -265,6 +284,60 @@ data:
       ]
     }
 ---
+# ── App Overview dashboard — per-user-app panels ─────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-app-overview
+  namespace: deployhub
+data:
+  app-overview.json: |
+    {
+      "title": "App Overview",
+      "uid": "app-overview",
+      "schemaVersion": 38,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "templating": {
+        "list": [{
+          "name": "app",
+          "type": "query",
+          "label": "App",
+          "datasource": "Prometheus",
+          "query": "label_values(deployhub_pod_restarts_total, pod_name)",
+          "refresh": 2,
+          "includeAll": true,
+          "allValue": ".*"
+        }]
+      },
+      "panels": [
+        {
+          "id": 1, "type": "stat", "title": "Pod Restarts",
+          "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+          "targets": [{ "expr": "deployhub_pod_restarts_total{pod_name=~\"$app\"}", "legendFormat": "{{pod_name}}" }],
+          "options": { "colorMode": "background", "thresholds": { "steps": [{"value": 0, "color": "green"}, {"value": 1, "color": "orange"}, {"value": 5, "color": "red"}] } }
+        },
+        {
+          "id": 2, "type": "timeseries", "title": "Pod Restart History",
+          "gridPos": { "x": 6, "y": 0, "w": 18, "h": 4 },
+          "targets": [{ "expr": "deployhub_pod_restarts_total{pod_name=~\"$app\"}", "legendFormat": "{{pod_name}}" }]
+        },
+        {
+          "id": 3, "type": "timeseries", "title": "Log Volume (lines/min)",
+          "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
+          "datasource": "Loki",
+          "targets": [{ "expr": "sum(rate({namespace=\"deployhub-apps\", app=~\"$app\"}[1m])) by (app)", "legendFormat": "{{app}}" }]
+        },
+        {
+          "id": 4, "type": "logs", "title": "App Logs",
+          "gridPos": { "x": 0, "y": 12, "w": 24, "h": 12 },
+          "datasource": "Loki",
+          "targets": [{ "expr": "{namespace=\"deployhub-apps\", app=~\"$app\"}" }],
+          "options": { "dedupStrategy": "none", "showLabels": true, "wrapLogMessage": true }
+        }
+      ]
+    }
+---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -315,6 +388,13 @@ spec:
               value: "false"
             - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
               value: "/var/lib/grafana/dashboards/deployhub.json"
+            # Allow anonymous read-only access so users can click through from DeployHub UI
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: "Viewer"
+            - name: GF_AUTH_ANONYMOUS_ORG_NAME
+              value: "Main Org."
           resources:
             requests:
               cpu: "100m"
@@ -330,7 +410,11 @@ spec:
             - name: grafana-dashboards-provider
               mountPath: /etc/grafana/provisioning/dashboards
             - name: grafana-dashboard-deployhub
-              mountPath: /var/lib/grafana/dashboards
+              mountPath: /var/lib/grafana/dashboards/deployhub.json
+              subPath: deployhub.json
+            - name: grafana-dashboard-app-overview
+              mountPath: /var/lib/grafana/dashboards/app-overview.json
+              subPath: app-overview.json
           livenessProbe:
             httpGet:
               path: /api/health
@@ -356,6 +440,9 @@ spec:
         - name: grafana-dashboard-deployhub
           configMap:
             name: grafana-dashboard-deployhub
+        - name: grafana-dashboard-app-overview
+          configMap:
+            name: grafana-dashboard-app-overview
 ---
 apiVersion: v1
 kind: Service

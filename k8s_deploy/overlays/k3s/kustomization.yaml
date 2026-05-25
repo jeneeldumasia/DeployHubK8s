@@ -6,5 +6,6 @@ resources:
   - logging.yaml
   - ingress.yaml
   - cloudflared.yaml
+  - metrics-server.yaml
 patches:
   - path: ingress-patch.yaml

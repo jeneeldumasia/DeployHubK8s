@@ -385,6 +385,100 @@ async def get_all_deployment_restart_counts() -> dict[str, int]:
     return await loop.run_in_executor(None, _get_all_deployment_restart_counts_sync)
 
 
+def _get_pod_status_sync(deployment_name: str) -> dict:
+    """
+    Return rich pod status for a deployment:
+      phase, ready, restart_count, cpu, memory, events (last 3 warnings).
+    Gracefully degrades: CPU/memory are omitted if metrics-server is unavailable.
+    """
+    v1 = _get_k8s_client()
+    namespace = _user_namespace()
+
+    # ── Find the newest running pod for this deployment ───────────────────────
+    try:
+        pods = v1.list_namespaced_pod(namespace=namespace, label_selector=f"app={deployment_name}")
+    except ApiException:
+        return {"phase": "Unknown", "ready": False, "restart_count": 0,
+                "cpu": None, "memory": None, "events": []}
+
+    if not pods.items:
+        return {"phase": "Unknown", "ready": False, "restart_count": 0,
+                "cpu": None, "memory": None, "events": []}
+
+    # Prefer a Running pod; fall back to the most recently started one
+    target = next((p for p in pods.items if p.status.phase == "Running"), pods.items[0])
+    pod_name = target.metadata.name
+    phase = target.status.phase or "Unknown"
+
+    # ── Ready status ──────────────────────────────────────────────────────────
+    ready = False
+    if target.status.conditions:
+        for cond in target.status.conditions:
+            if cond.type == "Ready" and cond.status == "True":
+                ready = True
+                break
+
+    # ── Restart count (sum across all containers) ─────────────────────────────
+    restart_count = 0
+    container_statuses = target.status.container_statuses or []
+    for cs in container_statuses:
+        restart_count += cs.restart_count
+
+    # ── CPU / memory from metrics-server (best-effort) ────────────────────────
+    cpu: str | None = None
+    memory: str | None = None
+    try:
+        metrics_api = __import__("kubernetes").client.CustomObjectsApi()
+        pod_metrics = metrics_api.get_namespaced_custom_object(
+            group="metrics.k8s.io",
+            version="v1beta1",
+            namespace=namespace,
+            plural="pods",
+            name=pod_name,
+        )
+        cpu_total = 0
+        mem_total = 0
+        for container in pod_metrics.get("containers", []):
+            cpu_total += _parse_cpu_quantity(container["usage"].get("cpu", "0"))
+            mem_total += _parse_memory_quantity(container["usage"].get("memory", "0"))
+        cpu = f"{cpu_total}m"
+        memory = f"{mem_total}Mi"
+    except Exception:
+        pass  # metrics-server not available — omit CPU/memory
+
+    # ── Last 3 Warning events for this pod ────────────────────────────────────
+    events: list[str] = []
+    try:
+        ev = v1.list_namespaced_event(
+            namespace=namespace,
+            field_selector=f"involvedObject.name={pod_name},type=Warning",
+        )
+        # Sort newest-first and take last 3
+        sorted_events = sorted(
+            ev.items,
+            key=lambda e: (e.last_timestamp or e.event_time or ""),
+            reverse=True,
+        )
+        events = [f"{e.reason}: {e.message}" for e in sorted_events[:3] if e.message]
+    except Exception:
+        pass
+
+    return {
+        "phase": phase,
+        "ready": ready,
+        "restart_count": restart_count,
+        "cpu": cpu,
+        "memory": memory,
+        "events": events,
+    }
+
+
+async def get_pod_status(deployment_name: str) -> dict:
+    """Async wrapper for _get_pod_status_sync."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, partial(_get_pod_status_sync, deployment_name))
+
+
 def _get_namespace_resources_sync(pod_name: str) -> dict:
     """Return current pod resource usage vs namespace quota (metrics API)."""
     v1 = _get_k8s_client()

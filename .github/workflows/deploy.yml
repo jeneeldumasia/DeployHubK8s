@@ -392,17 +392,17 @@ jobs:
           kubectl delete service mongodb-service -n deployhub --ignore-not-found=true || true
 
           # If MongoDB deployment exists, check if auth is failing due to an uninitialized data volume
-          if kubectl get deployment mongodb -n deployhub &>/dev/null; then
+          if kubectl get statefulset mongodb -n deployhub &>/dev/null; then
             echo "Checking MongoDB authentication status..."
-            kubectl rollout status deployment/mongodb -n deployhub --timeout=30s || true
-            if kubectl exec -n deployhub deployment/mongodb -- mongosh --username root --password "$MONGO_PASSWORD" --authenticationDatabase admin --eval "db.adminCommand('ping')" &>/dev/null; then
+            kubectl rollout status statefulset/mongodb -n deployhub --timeout=30s || true
+            if kubectl exec -n deployhub statefulset/mongodb -- mongosh --username root --password "$MONGO_PASSWORD" --authenticationDatabase admin --eval "db.adminCommand('ping')" &>/dev/null; then
               echo "✅ MongoDB authentication is working."
             else
               echo "⚠️ MongoDB authentication failed. Checking if localhost exception is active (no users exist)..."
-              if kubectl exec -n deployhub deployment/mongodb -- mongosh --eval "db.adminCommand('ping')" &>/dev/null; then
+              if kubectl exec -n deployhub statefulset/mongodb -- mongosh --eval "db.adminCommand('ping')" &>/dev/null; then
                 echo "🗑️ MongoDB is unauthenticated. Deleting deployment and PVC to force clean initialization with root user..."
-                kubectl delete deployment mongodb -n deployhub || true
-                kubectl delete pvc mongo-pvc -n deployhub || true
+                kubectl delete statefulset mongodb -n deployhub || true
+                kubectl delete pvc mongo-storage-mongodb-0 -n deployhub || true
                 sleep 5
               else
                 echo "❌ MongoDB is not responding or auth is active with different credentials."
@@ -428,7 +428,7 @@ jobs:
 
           # ── Wait for Rollout via ArgoCD Sync ──
           echo "Waiting for backend/frontend deployments to reconcile..."
-          kubectl rollout status deployment/backend  -n deployhub --timeout=300s
+          kubectl rollout status deployment/backend  -n deployhub --timeout=600s
           kubectl rollout status deployment/frontend -n deployhub --timeout=120s
           SCRIPT
 

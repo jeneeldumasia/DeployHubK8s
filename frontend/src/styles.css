@@ -112,8 +112,8 @@ body {
   position: absolute;
   bottom: 24px;
   left: 24px;
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   background: var(--bg-panel);
   border: 1.5px solid var(--border-strong);
@@ -150,8 +150,8 @@ body {
 
 .ring-node {
   position: absolute;
-  bottom: 32px; /* 56/2 + 24 - 40/2 */
-  left: 32px;
+  bottom: 28px; /* 48/2 + 24 - 40/2 = 24 + 24 - 20 = 28 */
+  left: 28px;
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -184,22 +184,20 @@ body {
 }
 
 .ring-node.active {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
-  color: #fff;
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--bg-panel);
 }
-[data-theme='dark'] .ring-node.active { color: #0d1117; }
 
 .ring-node:hover {
   background: var(--bg-elevated);
-  border-color: var(--accent-primary);
-  color: var(--accent-primary);
+  border-color: var(--text-primary);
+  color: var(--text-primary);
 }
 .ring-node.active:hover {
-  background: var(--accent-primary);
-  color: #fff;
+  background: var(--text-primary);
+  color: var(--bg-panel);
 }
-[data-theme='dark'] .ring-node.active:hover { color: #0d1117; }
 
 /* Pulse for active states */
 .ring-node.pulse::before {

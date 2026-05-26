@@ -265,7 +265,7 @@ class DeploymentWorker:
                 try:
                     await self._health_check_pod(
                         pod_name=container_name,
-                        node_port=assigned_port,
+                        container_port=container_port,
                         record_log=record_log,
                         health_path=project.get("health_path") or "/",
                     )
@@ -764,7 +764,7 @@ class DeploymentWorker:
         await wait_for_deployment_running(container_name)
         await self._health_check_pod(
             pod_name=container_name,
-            node_port=project.get("assigned_port"),
+            container_port=container_port,
             record_log=record_log,
             health_path=project.get("health_path") or "/",
         )
@@ -783,7 +783,7 @@ class DeploymentWorker:
     async def _health_check_pod(
         self,
         pod_name: str,
-        node_port: int,
+        container_port: int,
         record_log,
         health_path: str = "/",
         pod_ready_timeout: int = 120,
@@ -794,7 +794,7 @@ class DeploymentWorker:
         """
         Two-stage post-deployment health check with exponential backoff:
           1. Wait for the K8s pod to reach Running+Ready state.
-          2. Probe the app via HTTP — retries with exponential backoff (1s, 1.5s, 2.25s…).
+          2. Probe the app via HTTP using internal Kubernetes DNS.
         Raises RuntimeError on failure so the caller can trigger rollback.
         """
         await record_log("⏳ Waiting for deployment to reach Running state...")
@@ -806,9 +806,9 @@ class DeploymentWorker:
 
         await record_log("✅ Pod is Running. Probing HTTP endpoint...")
 
-        base_host = settings.public_base_url.replace("http://", "").replace("https://", "").split(":")[0]
         path = health_path if health_path.startswith("/") else f"/{health_path}"
-        probe_url = f"http://{base_host}:{node_port}{path}"
+        # Probe the service directly using internal Kubernetes DNS and the container port
+        probe_url = f"http://{pod_name}.{settings.apps_namespace}.svc.cluster.local:{container_port}{path}"
 
         last_error: str = "no attempts made"
         timeout = aiohttp.ClientTimeout(total=10)

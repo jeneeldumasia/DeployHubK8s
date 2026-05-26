@@ -30,3 +30,8 @@ output "backend_sa_role_arn" {
 output "node_group_names" {
   value = aws_eks_node_group.main[*].node_group_name
 }
+
+output "cluster_security_group_id" {
+  value       = aws_eks_cluster.main.vpc_config[0].cluster_security_group_id
+  description = "The primary security group created by EKS and automatically attached to all nodes."
+}

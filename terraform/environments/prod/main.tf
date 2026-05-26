@@ -64,6 +64,20 @@ module "eks" {
   tags                   = local.tags
 }
 
+# ── ALB to EKS Nodes Access ───────────────────────────────────────────────────
+# EKS Managed Node Groups don't automatically attach additional security groups.
+# They only use the cluster's primary security group. We must explicitly allow
+# the ALB to talk to this primary security group so health checks reach the Pod IPs.
+resource "aws_security_group_rule" "alb_to_eks_nodes_primary" {
+  type                     = "ingress"
+  from_port                = 0
+  to_port                  = 65535
+  protocol                 = "tcp"
+  source_security_group_id = module.networking.alb_security_group_id
+  security_group_id        = module.eks.cluster_security_group_id
+  description              = "Allow ALB to talk to EKS worker node Pod IPs"
+}
+
 # ── Application Load Balancer ─────────────────────────────────────────────────
 resource "aws_lb" "main" {
   name               = "${local.project}-alb"

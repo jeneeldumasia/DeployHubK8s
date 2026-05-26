@@ -595,8 +595,27 @@ jobs:
             --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=${{ steps.tf.outputs.alb_controller_role }} \
             --wait
           
-          # Give the webhook an extra moment to fully register with the Kubernetes API
-          sleep 10
+          # Wait for the ALB controller webhook to be genuinely ready.
+          # 'helm upgrade --wait' only ensures pods are Running — it does NOT
+          # guarantee the MutatingWebhookConfiguration CA bundle has been
+          # injected (cert rotation takes an extra 30-60s). A premature
+          # 'kubectl apply' will fail with x509: certificate signed by unknown
+          # authority against the mutating webhook.
+          echo "⏳ Waiting for ALB controller webhook CA bundle to be injected..."
+          for i in $(seq 1 36); do
+            CA=$(kubectl get mutatingwebhookconfiguration aws-load-balancer-webhook \
+              -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null || echo "")
+            if [ -n "$CA" ]; then
+              echo "✅ Webhook CA bundle ready (attempt $i)"
+              break
+            fi
+            echo "Attempt $i/36 — CA bundle not yet injected, waiting 5s..."
+            sleep 5
+          done
+
+          # Extra buffer: cert is injected but the API server may still cache
+          # the old cert for a few seconds. A hard 15s wait is cheap insurance.
+          sleep 15
 
       - name: Render k8s manifests
         env:

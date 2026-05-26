@@ -589,7 +589,11 @@ jobs:
             --set clusterName=${{ steps.tf.outputs.cluster_name }} \
             --set serviceAccount.create=true \
             --set serviceAccount.name=aws-load-balancer-controller \
-            --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=${{ steps.tf.outputs.alb_controller_role }}
+            --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=${{ steps.tf.outputs.alb_controller_role }} \
+            --wait
+          
+          # Give the webhook an extra moment to fully register with the Kubernetes API
+          sleep 10
 
       - name: Render k8s manifests
         env:

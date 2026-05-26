@@ -1,255 +1,136 @@
+import { useState } from "react";
 import { copyToClipboard } from "../utils/clipboard";
 
 export default function ProjectsPage({
   projects,
-  selectedProjectId,
-  setSelectedProjectId,
-  selectedProject,
-  selectedProjectSummary,
   actionInFlight,
   error,
   onProjectAction,
   onGoToLogs,
   onRefreshLogs,
 }) {
-  const projectForActions = selectedProject || selectedProjectSummary;
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+
+  const filteredProjects = projects.filter(p => {
+    if (statusFilter !== "all" && p.status !== statusFilter) return false;
+    if (typeFilter !== "all" && p.project_type !== typeFilter) return false;
+    if (search) {
+      const s = search.toLowerCase();
+      if (!p.repo_url.toLowerCase().includes(s) && !(p.service_name && p.service_name.toLowerCase().includes(s))) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const uniqueTypes = [...new Set(projects.map(p => p.project_type))].filter(Boolean);
 
   return (
     <div>
       <div className="page-header">
         <h1>Projects</h1>
-        <p>Select a project to inspect its configuration and manage deployments.</p>
+        <p>Manage and monitor all deployed services.</p>
       </div>
 
+      <div className="search-bar">
+        <input 
+          type="text" 
+          placeholder="Search repositories or names..." 
+          value={search} 
+          onChange={e => setSearch(e.target.value)} 
+        />
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <option value="all">All Statuses</option>
+          <option value="running">Running</option>
+          <option value="building">Building</option>
+          <option value="failed">Failed</option>
+        </select>
+        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+          <option value="all">All Types</option>
+          {uniqueTypes.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+
+      {error && <p className="error inline-error" style={{marginBottom: "2rem"}}>{error}</p>}
+
       <div className="projects-layout">
-        {/* Left: project list */}
-        <div className="panel" style={{ padding: "1.5rem" }}>
-          <h2 style={{ fontSize: "1rem", fontWeight: 800, marginBottom: "0.25rem" }}>All Projects</h2>
-          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
-            {projects.length} project{projects.length !== 1 ? "s" : ""}
-          </p>
-          <div className="project-list">
-            {projects.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                className={`project-card ${selectedProjectId === p.id ? "selected" : ""}`}
-                onClick={() => setSelectedProjectId(p.id)}
-              >
-                <strong>{p.service_name || p.repo_url}</strong>
-                <div className="card-meta">
-                  <span>{p.project_type}{p.context_path ? ` (${p.context_path})` : ""}</span>
-                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                    <span className={`status-badge status-${p.status}`}>{p.status}</span>
-                    {p.service_url && (
-                      <a
-                        href={p.service_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ fontSize: "0.7rem", fontWeight: 700, textDecoration: "underline", color: "var(--accent-primary)" }}
-                      >
-                        Open ↗
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </button>
-            ))}
+        {filteredProjects.map((p) => {
+          const url = p.subdomain ? `http://${p.subdomain}.jeneeldumasia.codes` : null;
 
-            {projects.length === 0 && (
-              <div className="empty-state">
-                <div className="empty-icon">📦</div>
-                <p>No projects yet. Add one from the Dashboard.</p>
+          return (
+            <div key={p.id} className="project-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <strong style={{ fontSize: '1.2rem' }}>{p.service_name || p.repo_url.split("/").pop()}</strong>
+                <span className={`status-badge status-${p.status}`}>{p.status}</span>
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right: detail */}
-        <div className="panel">
-          {projectForActions ? (
-            <>
-              <div className="detail-header">
+              
+              <div className="card-meta">
                 <div>
-                  <h2>Project Detail</h2>
-                  <p>Configuration and deployment metrics.</p>
+                  <span>Type</span>
+                  <strong>{p.project_type}{p.context_path ? ` (${p.context_path})` : ""}</strong>
                 </div>
-                <span className={`status-badge status-${projectForActions.status}`}>
-                  {projectForActions.status}
-                </span>
-              </div>
-
-              <div className="detail-grid">
-                <div><span>Service Name</span><strong>{projectForActions.service_name || "Root"}</strong></div>
-                <div><span>Context Path</span><strong>{projectForActions.context_path || "/"}</strong></div>
-                <div><span>Repo URL</span><strong>{projectForActions.repo_url}</strong></div>
-                <div><span>Project Type</span><strong>{projectForActions.project_type}</strong></div>
-                <div><span>Service URL</span>
-                  {projectForActions.service_url && projectForActions.service_url !== "Not deployed yet" ? (
-                    <strong>
-                      <a
-                        href={projectForActions.service_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{ color: "var(--accent-primary)", textDecoration: "underline", fontFamily: "'JetBrains Mono', monospace", fontSize: "0.82rem", wordBreak: "break-all" }}
-                      >
-                        {projectForActions.service_url}
-                      </a>
-                    </strong>
-                  ) : (
-                    <strong>Not deployed yet</strong>
-                  )}
+                <div>
+                  <span>URL</span>
+                  {url ? (
+                    <a href={url} target="_blank" rel="noreferrer" style={{color: 'var(--accent-primary)', textDecoration: 'underline'}}>
+                      {url.replace("http://", "")}
+                    </a>
+                  ) : <strong>Pending</strong>}
                 </div>
-                <div><span>Assigned Port</span><strong>{projectForActions.assigned_port || "N/A"}</strong></div>
-                <div><span>Container ID</span><strong>{projectForActions.container_id || "N/A"}</strong></div>
-                <div><span>Image Tag</span><strong>{projectForActions.image_tag || "N/A"}</strong></div>
-                <div><span>Container Name</span><strong>{projectForActions.container_name || "N/A"}</strong></div>
                 <div>
                   <span>Last Updated</span>
-                  <strong>
-                    {projectForActions.updated_at
-                      ? new Date(projectForActions.updated_at).toLocaleString()
-                      : "N/A"}
-                  </strong>
+                  <strong>{new Date(p.updated_at).toLocaleString()}</strong>
                 </div>
               </div>
 
-              <div className="webhook-section">
-                <h3>CI/CD Webhook</h3>
-                <p>Add this URL to your GitHub repository settings to enable auto-deploy on push.</p>
-                <div className="webhook-box">
-                  <code>{`http://${window.location.hostname}:3081/api/webhooks/github/${projectForActions.id}`}</code>
-                  <button
-                    type="button"
-                    className="copy-button"
-                    onClick={async () => {
-                      const url = `http://${window.location.hostname}:3081/api/webhooks/github/${projectForActions.id}`;
-                      const ok = await copyToClipboard(url);
-                      if (ok) alert("Webhook URL copied!");
-                    }}
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-
-              {/* Environment variables — show if any were set */}
-              {projectForActions.env_vars && Object.keys(projectForActions.env_vars).length > 0 && (
-                <div className="webhook-section">
-                  <h3>Environment Variables</h3>
-                  <p>Injected into the container at runtime.</p>
-                  <div style={{
-                    background: "var(--bg-card)",
-                    border: "1px solid var(--border-strong)",
-                    borderRadius: 10,
-                    padding: "0.75rem 1rem",
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: "0.78rem",
-                    lineHeight: 1.8,
-                  }}>
-                    {Object.entries(projectForActions.env_vars).map(([k, v]) => (
-                      <div key={k}>
-                        <span style={{ color: "var(--accent-primary)", fontWeight: 700 }}>{k}</span>
-                        <span style={{ color: "var(--text-muted)" }}>=</span>
-                        <span style={{ color: "var(--text-secondary)" }}>{v}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {projectForActions.last_error && (
-                <p className="error inline-error">{projectForActions.last_error}</p>
-              )}
-
-              {error && <p className="error inline-error">{error}</p>}
-
-              <div className="action-row">
+              <div className="project-card-actions">
                 <button
                   type="button"
                   disabled={Boolean(actionInFlight)}
-                  onClick={() => onProjectAction("deploy", projectForActions.id)}
-                >
-                  Deploy
-                </button>
-                <button
-                  type="button"
-                  disabled={Boolean(actionInFlight)}
-                  onClick={() => onProjectAction("redeploy", projectForActions.id)}
+                  onClick={() => onProjectAction("redeploy", p.id)}
                 >
                   Redeploy
                 </button>
-                {projectForActions.last_good_image && projectForActions.status !== "building" && (
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={Boolean(actionInFlight)}
-                    onClick={() => onProjectAction("rollback", projectForActions.id)}
-                  >
-                    Rollback
-                  </button>
-                )}
                 <button
                   type="button"
                   className="secondary-button"
-                  disabled={Boolean(actionInFlight)}
-                  onClick={() => onProjectAction("stop", projectForActions.id)}
+                  onClick={() => onGoToLogs(p.id)}
                 >
-                  Stop
+                  Logs
                 </button>
+                {url && p.status === "running" && (
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="secondary-button"
+                    style={{ textDecoration: 'none' }}
+                  >
+                    Open ↗
+                  </a>
+                )}
                 <button
                   type="button"
                   className="danger-button"
+                  style={{ marginLeft: 'auto' }}
                   disabled={Boolean(actionInFlight)}
-                  onClick={() => onProjectAction("delete", projectForActions.id)}
+                  onClick={() => onProjectAction("delete", p.id)}
                 >
                   Delete
                 </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => onRefreshLogs(projectForActions.id)}
-                >
-                  Refresh Logs
-                </button>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => onGoToLogs(projectForActions.id)}
-                >
-                  View Logs
-                </button>
-                {projectForActions.service_url && projectForActions.status === "running" && (
-                  <a
-                    href={projectForActions.service_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "0.3rem",
-                      background: "var(--status-running)",
-                      color: "#fff",
-                      borderRadius: 9,
-                      padding: "0.6rem 1.3rem",
-                      fontWeight: 700,
-                      fontSize: "0.85rem",
-                      textDecoration: "none",
-                    }}
-                  >
-                    Open App ↗
-                  </a>
-                )}
               </div>
-            </>
-          ) : (
-            <div className="empty-state">
-              <div className="empty-icon">🔍</div>
-              <p>Select a project from the list to inspect it.</p>
             </div>
-          )}
-        </div>
+          );
+        })}
+
+        {filteredProjects.length === 0 && (
+          <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
+            <div className="empty-icon">🔍</div>
+            <p>No projects match your filters.</p>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -8,16 +8,6 @@ output "alb_zone_id" {
   value       = aws_lb.main.zone_id
 }
 
-output "acm_certificate_validation_records" {
-  description = "CNAME records you must add to your DNS provider to validate the free SSL certificate."
-  value = {
-    for dvo in aws_acm_certificate.main.domain_validation_options : dvo.domain_name => {
-      name   = dvo.resource_record_name
-      record = dvo.resource_record_value
-      type   = dvo.resource_record_type
-    }
-  }
-}
 
 output "eks_cluster_name" {
   value = module.eks.cluster_name

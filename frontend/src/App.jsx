@@ -5,7 +5,7 @@ import LogsPage       from "./pages/LogsPage";
 import SettingsPage   from "./pages/SettingsPage";
 import MonitoringPage from "./pages/MonitoringPage";
 import InfoPage       from "./pages/InfoPage";
-import RadialNav      from "./RadialNav";
+import ContextRing    from "./ContextRing";
 
 const apiBase = "/api";
 const destructiveActions = new Set(["stop", "delete"]);
@@ -62,6 +62,21 @@ export default function App() {
     () => projects.find((p) => p.id === selectedProjectId) || null,
     [projects, selectedProjectId]
   );
+
+  const systemStatus = useMemo(() => {
+    if (projects.some(p => p.status === "failed")) return "failed";
+    if (projects.some(p => p.status === "building")) return "building";
+    return "running";
+  }, [projects]);
+
+  const activePulses = useMemo(() => {
+    const now = Date.now();
+    return {
+      logs: projects.some(p => p.status === "building"),
+      monitoring: projects.some(p => p.status === "failed"),
+      projects: projects.some(p => p.status === "running" && (now - new Date(p.updated_at).getTime() < 60000)),
+    };
+  }, [projects]);
 
   /* ── Data loaders ──────────────────────────────────────────── */
   async function loadProjects() {
@@ -250,11 +265,11 @@ export default function App() {
   /* ── Render ────────────────────────────────────────────────── */
   return (
     <div className="app-shell">
-      <RadialNav
+      <ContextRing
         page={page}
         setPage={setPage}
-        theme={theme}
-        setTheme={setTheme}
+        systemStatus={systemStatus}
+        activePulses={activePulses}
       />
 
       {/* ── Page content ── */}
@@ -272,7 +287,7 @@ export default function App() {
             error={error}
             onCreateProject={handleCreateProject}
             onDeployService={deployService}
-            onNavigateProjects={() => setPage("projects")}
+            setPage={setPage}
           />
         )}
 

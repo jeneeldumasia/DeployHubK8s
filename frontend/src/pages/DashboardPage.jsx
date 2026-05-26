@@ -12,7 +12,7 @@ export default function DashboardPage({
   error,
   onCreateProject,
   onDeployService,
-  onNavigateProjects,
+  setPage,
 }) {
   const [showEnvVars, setShowEnvVars] = useState(false);
   const total    = projects.length;
@@ -34,21 +34,30 @@ export default function DashboardPage({
           <span className="stat-value">{total}</span>
           <span className="stat-sub">across all environments</span>
         </div>
-        <div className="stat-card">
+        <div className="stat-card running">
           <span className="stat-label">Running</span>
-          <span className="stat-value" style={{ color: "var(--status-running)" }}>{running}</span>
+          <span className="stat-value">{running}</span>
           <span className="stat-sub">live containers</span>
         </div>
-        <div className="stat-card">
+        <div className="stat-card building">
           <span className="stat-label">Building</span>
-          <span className="stat-value" style={{ color: "var(--status-building)" }}>{building}</span>
+          <span className="stat-value">{building}</span>
           <span className="stat-sub">in progress</span>
         </div>
-        <div className="stat-card">
+        <div className="stat-card failed">
           <span className="stat-label">Failed</span>
-          <span className="stat-value" style={{ color: "var(--status-failed)" }}>{failed}</span>
+          <span className="stat-value">{failed}</span>
           <span className="stat-sub">need attention</span>
         </div>
+      </div>
+
+      <div className="quick-action-bar">
+        <button type="button" onClick={() => {
+          document.querySelector('input[type="url"]').focus();
+          window.scrollTo({ top: 300, behavior: 'smooth' });
+        }}>+ New Project</button>
+        <button type="button" className="secondary-button" onClick={() => setPage("logs")}>≡ View Logs</button>
+        <button type="button" className="secondary-button" onClick={() => setPage("monitoring")}>◎ Monitoring</button>
       </div>
 
       {/* Add Project */}
@@ -144,26 +153,35 @@ export default function DashboardPage({
               type="button"
               className="secondary-button"
               style={{ fontSize: "0.78rem", padding: "0.4rem 0.9rem" }}
-              onClick={onNavigateProjects}
+              onClick={() => setPage("projects")}
             >
               View all →
             </button>
           </div>
-          <div className="project-list">
-            {projects.slice(0, 4).map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                className="project-card"
-                onClick={onNavigateProjects}
-              >
-                <strong>{p.service_name || p.repo_url}</strong>
-                <div className="card-meta">
-                  <span>{p.project_type}{p.context_path ? ` (${p.context_path})` : ""}</span>
-                  <span className={`status-badge status-${p.status}`}>{p.status}</span>
+          <div className="project-list" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
+            {projects.slice(0, 4).map((p) => {
+              const url = p.subdomain ? `http://${p.subdomain}.jeneeldumasia.codes` : null;
+              return (
+                <div key={p.id} className="project-card" style={{ padding: '1.25rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <strong style={{ fontSize: '1rem' }}>{p.service_name || p.repo_url.split("/").pop()}</strong>
+                    <span className={`status-badge status-${p.status}`}>{p.status}</span>
+                  </div>
+                  <div className="card-meta" style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: '0.5rem', alignItems: 'center' }}>
+                    <span>{p.project_type}{p.context_path ? ` (${p.context_path})` : ""}</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                      {new Date(p.updated_at).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <div className="project-card-actions" style={{ marginTop: '0.75rem', paddingTop: '0.75rem' }}>
+                    {url && p.status === "running" && (
+                      <a href={url} target="_blank" rel="noreferrer" className="secondary-button" style={{ textDecoration: 'none', padding: '0.35rem 0.75rem', fontSize: '0.75rem', borderRadius: '6px' }}>Open App ↗</a>
+                    )}
+                    <button type="button" className="secondary-button" style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', borderRadius: '6px' }} onClick={() => setPage("projects")}>Details</button>
+                  </div>
                 </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

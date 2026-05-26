@@ -159,6 +159,26 @@ resource "aws_lb_target_group" "grafana" {
   tags = local.tags
 }
 
+resource "aws_lb_target_group" "ingress_nginx" {
+  name        = "${local.project}-ingress-nginx-tg"
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = module.networking.vpc_id
+  target_type = "ip"
+
+  health_check {
+    path                = "/healthz"
+    healthy_threshold   = 2
+    unhealthy_threshold = 5
+    interval            = 15
+    timeout             = 5
+    matcher             = "200"
+    port                = "10254"
+  }
+
+  tags = local.tags
+}
+
 # ── ALB Listeners ─────────────────────────────────────────────────────────────
 
 # HTTP listener — redirect all to HTTPS when cert is available,
@@ -204,6 +224,20 @@ resource "aws_lb_listener_rule" "grafana" {
 
   condition {
     path_pattern { values = ["/grafana", "/grafana/*"] }
+  }
+}
+
+resource "aws_lb_listener_rule" "ingress_nginx" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 30
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.ingress_nginx.arn
+  }
+
+  condition {
+    host_header { values = ["*.jeneeldumasia.codes"] }
   }
 }
 

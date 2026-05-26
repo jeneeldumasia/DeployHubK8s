@@ -1,0 +1,11 @@
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: ingress-nginx-tgb
+  namespace: ingress-nginx
+spec:
+  serviceRef:
+    name: ingress-nginx-controller
+    port: 80
+  targetGroupARN: ${INGRESS_NGINX_TG_ARN}
+  targetType: ip

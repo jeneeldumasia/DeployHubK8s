@@ -263,12 +263,10 @@ def _create_ingress_sync(name: str, host: str, service_port: int) -> dict:
             "kind": "Ingress",
             "metadata": {
                 "name": name,
-                "namespace": namespace,
-                "annotations": {
-                    "traefik.ingress.kubernetes.io/router.entrypoints": "web"
-                }
+                "namespace": namespace
             },
             "spec": {
+                "ingressClassName": "nginx",
                 "rules": [
                     {
                         "host": host,

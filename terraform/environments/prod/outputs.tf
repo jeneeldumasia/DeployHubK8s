@@ -64,6 +64,10 @@ output "backend_tg_arn" {
   value = aws_lb_target_group.backend.arn
 }
 
+output "ingress_nginx_tg_arn" {
+  value = aws_lb_target_group.ingress_nginx.arn
+}
+
 output "vpc_id" {
   value = module.networking.vpc_id
 }

@@ -198,13 +198,47 @@ resource "aws_lb_target_group" "ingress_nginx" {
   tags = local.tags
 }
 
+# ── ACM Certificate ─────────────────────────────────────────────────────────────
+resource "aws_acm_certificate" "cert" {
+  domain_name               = "*.jeneeldumasia.codes"
+  subject_alternative_names = ["jeneeldumasia.codes"]
+  validation_method         = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = local.tags
+}
+
 # ── ALB Listeners ─────────────────────────────────────────────────────────────
 
-# HTTP listener (Cloudflare proxies to this via port 80)
+# HTTP listener redirects to HTTPS
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+
+  tags = local.tags
+}
+
+# HTTPS listener
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  certificate_arn   = aws_acm_certificate.cert.arn
 
   default_action {
     type             = "forward"
@@ -216,7 +250,7 @@ resource "aws_lb_listener" "http" {
 
 # Routing rules on HTTP listener
 resource "aws_lb_listener_rule" "api" {
-  listener_arn = aws_lb_listener.http.arn
+  listener_arn = aws_lb_listener.https.arn
   priority     = 10
 
   action {
@@ -230,7 +264,7 @@ resource "aws_lb_listener_rule" "api" {
 }
 
 resource "aws_lb_listener_rule" "grafana" {
-  listener_arn = aws_lb_listener.http.arn
+  listener_arn = aws_lb_listener.https.arn
   priority     = 20
 
   action {
@@ -244,7 +278,7 @@ resource "aws_lb_listener_rule" "grafana" {
 }
 
 resource "aws_lb_listener_rule" "prometheus" {
-  listener_arn = aws_lb_listener.http.arn
+  listener_arn = aws_lb_listener.https.arn
   priority     = 25
 
   action {
@@ -258,7 +292,7 @@ resource "aws_lb_listener_rule" "prometheus" {
 }
 
 resource "aws_lb_listener_rule" "ingress_nginx" {
-  listener_arn = aws_lb_listener.http.arn
+  listener_arn = aws_lb_listener.https.arn
   priority     = 30
 
   action {

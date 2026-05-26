@@ -244,22 +244,18 @@ class DeploymentWorker:
                 
                 container_id = container_name
 
-                # Always use the NodePort URL as the primary service URL —
-                # it works immediately regardless of DNS/domain configuration.
-                # The ingress/subdomain is created as a bonus for when the
-                # domain is eventually pointed at the cluster, but we never
-                # rely on it being resolvable right now.
-                base_host = settings.public_base_url.replace("http://", "").replace("https://", "").split(":")[0]
-                service_url = f"http://{base_host}:{assigned_port}"
-
-                # Create Ingress for subdomain (best-effort — don't fail deploy if it errors)
+                # In EKS with an ALB, NodePorts are blocked externally.
+                # The primary service URL must be the Ingress host URL.
                 slug = self._get_slug(project["repo_url"])
                 host = f"{slug}.{settings.base_domain}"
+                service_url = f"http://{host}"
+
+                # Create Ingress for subdomain (best-effort — don't fail deploy if it errors)
                 ingress_result = await create_ingress(name=container_name, host=host, service_port=container_port)
                 if ingress_result["status"] == "error":
                     await record_log(f"⚠️ Ingress creation failed (non-fatal): {ingress_result.get('error')}")
                 else:
-                    await record_log(f"Ingress configured for http://{host} (requires DNS to be set up)")
+                    await record_log(f"Ingress configured for {service_url} (requires DNS to be set up)")
 
                 # ── Post-deployment health check ──────────────────────────────
                 try:

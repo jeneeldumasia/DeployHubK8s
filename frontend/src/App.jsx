@@ -90,6 +90,17 @@ export default function App() {
     loadLogs(selectedProjectId).catch((e) => setError(e.message));
   }, [selectedProjectId]);
 
+  // Periodic polling for project list and details (UX improvement)
+  useEffect(() => {
+    const id = setInterval(() => {
+      loadProjects().catch(() => {});
+      if (selectedProjectId) {
+        loadProjectDetail(selectedProjectId).catch(() => {});
+      }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [selectedProjectId]);
+
   // SSE live log stream
   useEffect(() => {
     if (!selectedProjectId) return undefined;
@@ -180,14 +191,8 @@ export default function App() {
       
       if (newProject && newProject.id) {
         setSelectedProjectId(newProject.id);
-        setToast({
-          message: `🚀 Deployment queued for ${newProject.service_name || "project"}!`,
-          actionLabel: "View Live Logs",
-          action: () => {
-            setPage("logs");
-            setToast(null);
-          }
-        });
+        // Auto-navigate to logs page on deploy
+        setPage("logs");
       }
       
       await loadProjects();
@@ -226,6 +231,9 @@ export default function App() {
         setLogs({ build_logs: [], runtime_logs: [] });
       } else {
         setSelectedProjectId(projectId);
+        if (action === "deploy" || action === "redeploy") {
+          setPage("logs");
+        }
       }
       await loadProjects();
       if (action !== "delete") {
@@ -278,6 +286,7 @@ export default function App() {
             actionInFlight={actionInFlight}
             error={error}
             onProjectAction={handleProjectAction}
+            onGoToLogs={(id) => { setSelectedProjectId(id); setPage("logs"); }}
             onRefreshLogs={(id) => loadLogs(id).catch((e) => setError(e.message))}
           />
         )}

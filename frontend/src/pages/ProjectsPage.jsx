@@ -9,6 +9,7 @@ export default function ProjectsPage({
   actionInFlight,
   error,
   onProjectAction,
+  onGoToLogs,
   onRefreshLogs,
 }) {
   const projectForActions = selectedProject || selectedProjectSummary;
@@ -211,6 +212,13 @@ export default function ProjectsPage({
                   onClick={() => onRefreshLogs(projectForActions.id)}
                 >
                   Refresh Logs
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => onGoToLogs(projectForActions.id)}
+                >
+                  View Logs
                 </button>
                 {projectForActions.service_url && projectForActions.status === "running" && (
                   <a

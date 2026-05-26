@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { copyToClipboard } from "../utils/clipboard";
 
 function CopyButton({ lines, label }) {
@@ -28,6 +28,21 @@ function CopyButton({ lines, label }) {
 }
 
 export default function LogsPage({ projects, selectedProjectId, setSelectedProjectId, logs, streamState, onRefreshLogs }) {
+  const buildLogsRef = useRef(null);
+  const runtimeLogsRef = useRef(null);
+
+  useEffect(() => {
+    if (buildLogsRef.current) {
+      buildLogsRef.current.scrollTop = buildLogsRef.current.scrollHeight;
+    }
+  }, [logs.build_logs]);
+
+  useEffect(() => {
+    if (runtimeLogsRef.current) {
+      runtimeLogsRef.current.scrollTop = runtimeLogsRef.current.scrollHeight;
+    }
+  }, [logs.runtime_logs]);
+
   return (
     <div>
       <div className="page-header">
@@ -105,14 +120,14 @@ export default function LogsPage({ projects, selectedProjectId, setSelectedProje
                 <h3 style={{ margin: 0 }}>Build Logs</h3>
                 <CopyButton lines={logs.build_logs} label="build logs" />
               </div>
-              <pre>{logs.build_logs?.join("\n") || "No build logs yet."}</pre>
+              <pre ref={buildLogsRef}>{logs.build_logs?.join("\n") || "No build logs yet."}</pre>
             </div>
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
                 <h3 style={{ margin: 0 }}>Runtime Logs</h3>
                 <CopyButton lines={logs.runtime_logs} label="runtime logs" />
               </div>
-              <pre>{logs.runtime_logs?.join("\n") || "No runtime logs yet."}</pre>
+              <pre ref={runtimeLogsRef}>{logs.runtime_logs?.join("\n") || "No runtime logs yet."}</pre>
             </div>
           </div>
         </div>

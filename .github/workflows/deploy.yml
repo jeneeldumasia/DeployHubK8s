@@ -573,6 +573,7 @@ jobs:
           echo "backend_sa_role=$(terraform output -raw backend_sa_role_arn)" >> $GITHUB_OUTPUT
           echo "frontend_tg_arn=$(terraform output -raw frontend_tg_arn)"     >> $GITHUB_OUTPUT
           echo "backend_tg_arn=$(terraform output -raw backend_tg_arn)"       >> $GITHUB_OUTPUT
+          echo "vpc_id=$(terraform output -raw vpc_id)"                       >> $GITHUB_OUTPUT
 
       - name: Configure kubectl for EKS
         run: |
@@ -587,6 +588,8 @@ jobs:
           helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
             --namespace kube-system \
             --set clusterName=${{ steps.tf.outputs.cluster_name }} \
+            --set region=$AWS_REGION \
+            --set vpcId=${{ steps.tf.outputs.vpc_id }} \
             --set serviceAccount.create=true \
             --set serviceAccount.name=aws-load-balancer-controller \
             --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=${{ steps.tf.outputs.alb_controller_role }} \

@@ -280,8 +280,8 @@ function AppHealthSection({ projects }) {
   }, [projects]);
 
   const grafanaUrl = pod
-    ? `http://${host}:3091/d/app-overview/app-overview?var-app=${encodeURIComponent(pod.name)}`
-    : `http://${host}:3091`;
+    ? `http://${host}/grafana/d/app-overview/app-overview?var-app=${encodeURIComponent(pod.name)}`
+    : `http://${host}/grafana`;
 
   return (
     <div className="panel" style={{ marginBottom: "1.5rem" }}>
@@ -558,28 +558,28 @@ export default function MonitoringPage({ projects }) {
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1rem" }}>
           <ExternalLink
-            href={`http://${host}:3091/d/deployhub-overview/deployhub-overview`}
+            href={`http://${host}/grafana/d/deployhub-overview/deployhub-overview`}
             label="Grafana — DeployHub Overview"
             description="Deployment rates, HTTP latency, pod restarts across the platform"
-            port="3091"
+            port="/grafana"
           />
           <ExternalLink
-            href={`http://${host}:3091/d/app-overview/app-overview`}
+            href={`http://${host}/grafana/d/app-overview/app-overview`}
             label="Grafana — App Overview"
             description="Per-app log volume, pod restarts, and live Loki logs — filterable by app"
-            port="3091"
+            port="/grafana"
           />
           <ExternalLink
-            href={`http://${host}:3090`}
+            href={`http://${host}/prometheus`}
             label="Prometheus"
             description="Raw metrics explorer and alert rule status"
-            port="3090"
+            port="/prometheus"
           />
           <ExternalLink
-            href={`http://${host}:3090/alerts`}
+            href={`http://${host}/prometheus/alerts`}
             label="Alert Rules"
             description="4 active rules: backend down, high failure rate, health check failures, pod restarts"
-            port="3090/alerts"
+            port="/prometheus/alerts"
           />
           <ExternalLink
             href="/metrics"

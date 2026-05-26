@@ -30,6 +30,11 @@ variable "grafana_target_group_arn" {
   description = "ALB target group ARN for Grafana"
 }
 
+variable "prometheus_target_group_arn" {
+  type        = string
+  description = "ALB target group ARN for Prometheus"
+}
+
 variable "alb_dns_name" {
   type        = string
   description = "ALB DNS name for Grafana root URL config"

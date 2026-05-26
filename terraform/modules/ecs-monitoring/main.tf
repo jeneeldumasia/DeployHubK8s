@@ -538,7 +538,7 @@ resource "aws_ecs_task_definition" "prometheus" {
 
     entryPoint = ["sh", "-c"]
     command = [
-      "mkdir -p /etc/prometheus && aws ssm get-parameter --name /${var.project}/prometheus/config --region ${var.aws_region} --query Parameter.Value --output text > /etc/prometheus/prometheus.yml && aws ssm get-parameter --name /${var.project}/prometheus/alerts --region ${var.aws_region} --query Parameter.Value --output text > /etc/prometheus/alerts.yml && /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=2h --web.enable-lifecycle"
+      "mkdir -p /etc/prometheus && aws ssm get-parameter --name /${var.project}/prometheus/config --region ${var.aws_region} --query Parameter.Value --output text > /etc/prometheus/prometheus.yml && aws ssm get-parameter --name /${var.project}/prometheus/alerts --region ${var.aws_region} --query Parameter.Value --output text > /etc/prometheus/alerts.yml && /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=2h --web.enable-lifecycle --web.external-url=/prometheus/"
     ]
 
     portMappings = [
@@ -691,6 +691,12 @@ resource "aws_ecs_service" "prometheus" {
 
   service_registries {
     registry_arn = aws_service_discovery_service.prometheus.arn
+  }
+
+  load_balancer {
+    target_group_arn = var.prometheus_target_group_arn
+    container_name   = "prometheus"
+    container_port   = 9090
   }
 
   # Prometheus depends on Mimir being up for remote_write

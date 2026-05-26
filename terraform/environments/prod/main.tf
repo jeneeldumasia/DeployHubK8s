@@ -159,6 +159,25 @@ resource "aws_lb_target_group" "grafana" {
   tags = local.tags
 }
 
+resource "aws_lb_target_group" "prometheus" {
+  name        = "${local.project}-prometheus-tg"
+  port        = 9090
+  protocol    = "HTTP"
+  vpc_id      = module.networking.vpc_id
+  target_type = "ip"
+
+  health_check {
+    path                = "/-/healthy"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    interval            = 30
+    timeout             = 5
+    matcher             = "200"
+  }
+
+  tags = local.tags
+}
+
 resource "aws_lb_target_group" "ingress_nginx" {
   name        = "${local.project}-ingress-nginx-tg"
   port        = 80
@@ -179,17 +198,48 @@ resource "aws_lb_target_group" "ingress_nginx" {
   tags = local.tags
 }
 
+# ── ACM Certificate ────────────────────────────────────────────────────────────
+
+resource "aws_acm_certificate" "main" {
+  domain_name               = "jeneeldumasia.codes"
+  subject_alternative_names = ["*.jeneeldumasia.codes"]
+  validation_method         = "DNS"
+  
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = local.tags
+}
+
 # ── ALB Listeners ─────────────────────────────────────────────────────────────
 
-# HTTP listener — redirect all to HTTPS when cert is available,
-# otherwise serve directly (Phase 1: no cert yet)
+# HTTP listener — redirects all traffic to HTTPS
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
   protocol          = "HTTP"
 
-  # Phase 1: forward to frontend (no HTTPS yet)
-  # Phase 2: change default_action to redirect to HTTPS
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+
+  tags = local.tags
+}
+
+# HTTPS listener
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  certificate_arn   = aws_acm_certificate.main.arn
+
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.frontend.arn
@@ -198,9 +248,9 @@ resource "aws_lb_listener" "http" {
   tags = local.tags
 }
 
-# Routing rules on HTTP listener
+# Routing rules on HTTPS listener
 resource "aws_lb_listener_rule" "api" {
-  listener_arn = aws_lb_listener.http.arn
+  listener_arn = aws_lb_listener.https.arn
   priority     = 10
 
   action {
@@ -214,7 +264,7 @@ resource "aws_lb_listener_rule" "api" {
 }
 
 resource "aws_lb_listener_rule" "grafana" {
-  listener_arn = aws_lb_listener.http.arn
+  listener_arn = aws_lb_listener.https.arn
   priority     = 20
 
   action {
@@ -227,8 +277,22 @@ resource "aws_lb_listener_rule" "grafana" {
   }
 }
 
+resource "aws_lb_listener_rule" "prometheus" {
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 25
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.prometheus.arn
+  }
+
+  condition {
+    path_pattern { values = ["/prometheus", "/prometheus/*"] }
+  }
+}
+
 resource "aws_lb_listener_rule" "ingress_nginx" {
-  listener_arn = aws_lb_listener.http.arn
+  listener_arn = aws_lb_listener.https.arn
   priority     = 30
 
   action {
@@ -251,6 +315,7 @@ module "ecs_monitoring" {
   private_subnet_ids          = module.networking.private_subnet_ids
   ecs_tasks_security_group_id = module.networking.ecs_tasks_security_group_id
   grafana_target_group_arn    = aws_lb_target_group.grafana.arn
+  prometheus_target_group_arn = aws_lb_target_group.prometheus.arn
   alb_dns_name                = aws_lb.main.dns_name
   # Prometheus scrapes the EKS backend via the ALB internal DNS
   eks_metrics_endpoint_host   = aws_lb.main.dns_name

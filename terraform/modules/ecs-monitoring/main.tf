@@ -618,7 +618,7 @@ resource "aws_ecs_task_definition" "grafana" {
     }
 
     healthCheck = {
-      command     = ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      command     = ["CMD-SHELL", "wget -qO- http://localhost:3000/grafana/api/health || exit 1"]
       interval    = 30
       timeout     = 5
       retries     = 3

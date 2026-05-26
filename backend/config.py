@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     allowed_repo_hosts: str = "github.com"
     docker_build_timeout_seconds: int = 1800
     docker_run_retry_count: int = 5
-    port_range_start: int = 3100
-    port_range_end: int = 3999
+    port_range_start: int = 31000
+    port_range_end: int = 32767
     cors_origins: str = "*"
     aws_region: str = "us-east-1"
     base_domain: str = "jeneeldumasia.codes"

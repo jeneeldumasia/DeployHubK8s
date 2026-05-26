@@ -646,18 +646,26 @@ jobs:
           fi
           kubectl rollout status deployment/frontend -n deployhub --timeout=90s
 
+      - name: Wait for ALB target health to converge
+        run: |
+          # TargetGroupBinding registers pod IPs, then ALB runs health checks.
+          # With healthy_threshold=2 and interval=30s, convergence takes 60s minimum.
+          # Adding 90s explicit wait so the smoke test sees healthy targets on attempt 1.
+          echo "⏳ Waiting 90s for ALB TargetGroupBinding health checks to converge..."
+          sleep 90
+
       - name: Smoke test
         run: |
           ALB=${{ steps.tf.outputs.alb_dns }}
           chmod +x scripts/smoke_test.sh
-          for i in $(seq 1 12); do
+          for i in $(seq 1 20); do
             if bash scripts/smoke_test.sh "http://$ALB"; then
               exit 0
             fi
-            echo "Attempt $i/12 — retrying in 10s..."
-            sleep 10
+            echo "Attempt $i/20 — retrying in 15s..."
+            sleep 15
           done
-          echo "❌ Backend did not become healthy"
+          echo "❌ Backend did not become healthy after 5 minutes"
           exit 1
 
       - name: Deployment summary

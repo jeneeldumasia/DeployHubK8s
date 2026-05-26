@@ -88,7 +88,7 @@ resource "aws_lb" "main" {
 # Frontend (React/Nginx on EKS)
 resource "aws_lb_target_group" "frontend" {
   name        = "${local.project}-frontend-tg"
-  port        = 80
+  port        = 8080   # matches Nginx containerPort and Service port
   protocol    = "HTTP"
   vpc_id      = module.networking.vpc_id
   target_type = "ip"   # required for EKS pods (awsvpc mode)

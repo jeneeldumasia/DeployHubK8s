@@ -191,13 +191,6 @@ jobs:
           echo "Full details in the **Security → Code scanning** tab." >> $GITHUB_STEP_SUMMARY
           echo "✅ Vulnerability scan complete — see Security tab for details"
 
-      - name: Push frontend
-        if: github.ref == 'refs/heads/main'
-        run: |
-          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
-          docker push $ECR_REGISTRY/$FRONTEND_IMAGE:${{ steps.tag.outputs.tag }}
-          docker push $ECR_REGISTRY/$FRONTEND_IMAGE:latest
-
   # ────────────────────────────────────────────────────────────────────────────
   # JOB 2a — Deploy to k3s on EC2 (default for push to main)
   # ────────────────────────────────────────────────────────────────────────────
@@ -621,6 +614,7 @@ jobs:
           REPLACE_ME_MONGO_URI: "mongodb://root:${{ secrets.MONGO_PASSWORD }}@mongodb:27017/deployhub?authSource=admin"
           REPLACE_ME_REGISTRY_ADDR: ${{ steps.tf.outputs.ecr_apps }}
           REPLACE_ME_PUBLIC_BASE_URL: "http://${{ steps.tf.outputs.alb_dns }}"
+          REPLACE_ME_GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
           FRONTEND_TG_ARN: ${{ steps.tf.outputs.frontend_tg_arn }}
           BACKEND_TG_ARN: ${{ steps.tf.outputs.backend_tg_arn }}
         run: |
@@ -630,9 +624,8 @@ jobs:
           sed -i "s|deployhub-backend:latest|$ECR_BACKEND:$IMAGE_TAG|g" k8s_rendered/base/backend.yaml
           sed -i "s|deployhub-frontend:latest|$ECR_FRONTEND:$IMAGE_TAG|g" k8s_rendered/base/frontend.yaml
           sed -i "s|\${BACKEND_SA_ROLE_ARN}|$BACKEND_SA_ROLE_ARN|g" k8s_rendered/base/backend.yaml
-          MONGO_ROOT_USER=root \
-          MONGO_ROOT_PASSWORD="${{ secrets.MONGO_PASSWORD }}" \
-          envsubst < k8s_deploy/base/secrets.yaml > k8s_rendered/base/secrets.yaml
+          envsubst '${MONGO_ROOT_USER}${MONGO_ROOT_PASSWORD}${REPLACE_ME_GRAFANA_USER}${REPLACE_ME_GRAFANA_PASSWORD}${REPLACE_ME_MONGO_URI}${REPLACE_ME_REGISTRY_ADDR}${REPLACE_ME_PUBLIC_BASE_URL}${REPLACE_ME_GITHUB_WEBHOOK_SECRET}' \
+            < k8s_deploy/base/secrets.yaml > k8s_rendered/base/secrets.yaml
 
       - name: Apply manifests to EKS
         run: |

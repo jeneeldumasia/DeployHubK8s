@@ -587,7 +587,7 @@ resource "aws_ecs_task_definition" "grafana" {
 
     entryPoint = ["sh", "-c"]
     command = [
-      "mkdir -p /etc/grafana/provisioning/datasources && aws ssm get-parameter --name /${var.project}/grafana/datasources --region ${var.aws_region} --query Parameter.Value --output text > /etc/grafana/provisioning/datasources/datasources.yaml && /run.sh"
+      "mkdir -p /etc/grafana/provisioning/datasources && echo \"$GRAFANA_DATASOURCES_YAML\" > /etc/grafana/provisioning/datasources/datasources.yaml && /run.sh"
     ]
 
     portMappings = [
@@ -605,7 +605,8 @@ resource "aws_ecs_task_definition" "grafana" {
 
     secrets = [
       { name = "GF_SECURITY_ADMIN_USER",     valueFrom = "${aws_secretsmanager_secret.grafana.arn}:admin-user::" },
-      { name = "GF_SECURITY_ADMIN_PASSWORD", valueFrom = "${aws_secretsmanager_secret.grafana.arn}:admin-password::" }
+      { name = "GF_SECURITY_ADMIN_PASSWORD", valueFrom = "${aws_secretsmanager_secret.grafana.arn}:admin-password::" },
+      { name = "GRAFANA_DATASOURCES_YAML",   valueFrom = aws_ssm_parameter.grafana_datasources.arn }
     ]
 
     logConfiguration = {

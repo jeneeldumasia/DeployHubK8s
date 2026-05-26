@@ -639,6 +639,7 @@ jobs:
           kubectl apply -f k8s_rendered/base/namespace.yaml
           kubectl apply -f k8s_rendered/base/secrets.yaml
           kubectl delete service mongodb -n deployhub --ignore-not-found=true || true
+          kubectl delete ingress deployhub-ingress -n deployhub --ignore-not-found=true || true
           kubectl apply -k k8s_rendered/overlays/eks
 
       - name: Wait for rollout

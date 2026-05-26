@@ -583,6 +583,13 @@ jobs:
 
       - name: Install AWS Load Balancer Controller
         run: |
+          # Cleanup stuck releases from previously canceled jobs
+          STATUS=$(helm status aws-load-balancer-controller -n kube-system -o json 2>/dev/null | jq -r '.info.status' || echo "not-found")
+          if [[ "$STATUS" == "pending-install" || "$STATUS" == "pending-upgrade" || "$STATUS" == "pending-rollback" ]]; then
+            echo "Helm release is stuck in $STATUS. Uninstalling to recover..."
+            helm uninstall aws-load-balancer-controller -n kube-system --wait
+          fi
+          
           helm repo add eks https://aws.github.io/eks-charts
           helm repo update eks
           helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \

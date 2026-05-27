@@ -11,8 +11,7 @@ check() {
   local label=$1
   local url=$2
   local expected=$3   # space-separated list of acceptable codes
-
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$url" || echo "000")
+  STATUS=$(curl -s -L -k -o /dev/null -w "%{http_code}" --max-time 10 "$url" || echo "000")
   for code in $expected; do
     if [ "$STATUS" = "$code" ]; then
       echo "✅ $label ($STATUS)"

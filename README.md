@@ -52,6 +52,8 @@ flowchart TD
 
 - **Terraform remote state with per-account keys** — the S3 backend key includes the AWS account ID (`environments/k3s/<account-id>/terraform.tfstate`), so the same repo works across KodeKloud lab sessions without state collisions between different account IDs.
 
+- **Wildcard SSL & HTTPS Enforcement** — automatically provisions AWS ACM wildcard certificates (`*.domain.com`) attached to the Application Load Balancer. The ALB enforces strict HTTP-to-HTTPS redirection, enabling end-to-end encryption and Cloudflare "Full (Strict)" proxying for all user apps without requiring per-project certificate generation.
+
 ---
 
 ## Metrics & Observability
@@ -227,4 +229,4 @@ env:
 
 ## Resume Bullet
 
-*Built DeployHub, a self-hosted Kubernetes PaaS on AWS (k3s + EC2) that automatically detects, builds, and deploys any public GitHub repository — Node, Python, or static — with zero configuration. Implemented an async deployment queue in FastAPI with BuildKit for in-cluster image builds pushed to ECR, post-deployment health checks with exponential backoff and automatic rollback, SSE log streaming, and a full observability stack (Prometheus, Grafana, Loki, Promtail) with 12 custom metrics and pre-provisioned dashboards. Infrastructure is fully Terraform-managed with remote state on S3; CI/CD via GitHub Actions runs pytest, Trivy SARIF scans (results visible in GitHub Security tab), and deploys on every push to main with a smoke test gate.*
+*Built DeployHub, a self-hosted Kubernetes PaaS on AWS (k3s + EC2) that automatically detects, builds, and deploys any public GitHub repository — Node, Python, or static — with zero configuration. Implemented an async deployment queue in FastAPI with BuildKit for in-cluster image builds pushed to ECR, post-deployment health checks with exponential backoff and automatic rollback, SSE log streaming, and a full observability stack (Prometheus, Grafana, Loki, Promtail) with 12 custom metrics and pre-provisioned dashboards. Infrastructure is fully Terraform-managed (including dynamic AWS ACM wildcard certificates and ALB strict HTTPS redirection) with remote state on S3; CI/CD via GitHub Actions runs pytest, Trivy SARIF scans (results visible in GitHub Security tab), and deploys on every push to main with a smoke test gate.*

@@ -57,7 +57,7 @@ export default function ProjectsPage({
 
       <div className="projects-layout">
         {filteredProjects.map((p) => {
-          const url = p.subdomain ? `http://${p.subdomain}.jeneeldumasia.codes` : null;
+          const url = p.service_url ? p.service_url.replace("http://", "https://") : null;
 
           return (
             <div key={p.id} className="project-card">

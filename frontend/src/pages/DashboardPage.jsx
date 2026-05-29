@@ -160,7 +160,7 @@ export default function DashboardPage({
           </div>
           <div className="project-list" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem' }}>
             {projects.slice(0, 4).map((p) => {
-              const url = p.subdomain ? `http://${p.subdomain}.jeneeldumasia.codes` : null;
+              const url = p.service_url ? p.service_url.replace("http://", "https://") : null;
               return (
                 <div key={p.id} className="project-card" style={{ padding: '1.25rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>

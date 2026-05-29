@@ -21,3 +21,27 @@ spec:
     port: 8000
   targetGroupARN: ${BACKEND_TG_ARN}
   targetType: ip
+---
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: grafana-tgb
+  namespace: deployhub
+spec:
+  serviceRef:
+    name: grafana
+    port: 3000
+  targetGroupARN: ${GRAFANA_TG_ARN}
+  targetType: ip
+---
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: prometheus-tgb
+  namespace: deployhub
+spec:
+  serviceRef:
+    name: prometheus
+    port: 9090
+  targetGroupARN: ${PROMETHEUS_TG_ARN}
+  targetType: ip

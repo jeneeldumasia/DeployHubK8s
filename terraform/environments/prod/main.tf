@@ -251,7 +251,7 @@ resource "aws_lb_listener" "https" {
 # Routing rules on HTTP listener
 resource "aws_lb_listener_rule" "dashboard" {
   listener_arn = aws_lb_listener.https.arn
-  priority     = 5
+  priority     = 100
 
   action {
     type             = "forward"
@@ -319,25 +319,6 @@ resource "aws_lb_listener_rule" "ingress_nginx" {
   }
 }
 
-# ── ECS Monitoring Stack ──────────────────────────────────────────────────────
-module "ecs_monitoring" {
-  source                      = "../../modules/ecs-monitoring"
-  project                     = local.project
-  aws_region                  = var.aws_region
-  aws_account_id              = data.aws_caller_identity.current.account_id
-  vpc_id                      = module.networking.vpc_id
-  private_subnet_ids          = module.networking.private_subnet_ids
-  ecs_tasks_security_group_id = module.networking.ecs_tasks_security_group_id
-  grafana_target_group_arn    = aws_lb_target_group.grafana.arn
-  prometheus_target_group_arn = aws_lb_target_group.prometheus.arn
-  alb_dns_name                = aws_lb.main.dns_name
-  # Prometheus scrapes the EKS backend via the ALB internal DNS
-  eks_metrics_endpoint_host   = aws_lb.main.dns_name
-  eks_metrics_endpoint_port   = 80
-  grafana_admin_user          = var.grafana_admin_user
-  grafana_admin_password      = var.grafana_admin_password
-  tags                        = local.tags
-}
 
 # ── SSH Key Pair (for debugging nodes if needed) ──────────────────────────────
 resource "aws_key_pair" "deployhub" {

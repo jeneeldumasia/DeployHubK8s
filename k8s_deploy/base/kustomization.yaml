@@ -10,3 +10,4 @@ resources:
   - resourcequota.yaml
   - registry.yaml
   - backups.yaml
+  - monitoring.yaml

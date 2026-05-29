@@ -65,6 +65,14 @@ output "backend_tg_arn" {
   value = aws_lb_target_group.backend.arn
 }
 
+output "grafana_tg_arn" {
+  value = aws_lb_target_group.grafana.arn
+}
+
+output "prometheus_tg_arn" {
+  value = aws_lb_target_group.prometheus.arn
+}
+
 output "ingress_nginx_tg_arn" {
   value = aws_lb_target_group.ingress_nginx.arn
 }

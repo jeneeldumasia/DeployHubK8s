@@ -696,6 +696,6 @@ jobs:
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Image tag** | \`${{ needs.build-and-push.outputs.image-tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **UI** | http://$ALB |" >> $GITHUB_STEP_SUMMARY
-          echo "| **API** | http://$ALB/api |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Grafana** | http://$ALB/grafana |" >> $GITHUB_STEP_SUMMARY
+          echo "| **UI** | https://deployhub.jeneeldumasia.codes |" >> $GITHUB_STEP_SUMMARY
+          echo "| **API** | https://deployhub.jeneeldumasia.codes/api |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Grafana** | https://deployhub.jeneeldumasia.codes/grafana |" >> $GITHUB_STEP_SUMMARY

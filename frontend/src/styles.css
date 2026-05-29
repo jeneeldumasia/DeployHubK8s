@@ -193,6 +193,10 @@ body {
   color: var(--bg-panel);
 }
 
+[data-theme='dark'] .ring-node.active {
+  color: var(--bg-panel) !important;
+}
+
 .ring-node:hover {
   background: var(--bg-elevated);
   border-color: var(--text-primary);

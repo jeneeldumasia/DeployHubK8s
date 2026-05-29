@@ -219,13 +219,13 @@ function AppHealthSection({ projects }) {
 }
 
 function GrafanaIframe({ dashboardUid, title }) {
-  const url = `${window.location.protocol}//${window.location.hostname}:3091/d/${dashboardUid}?kiosk=tv&theme=dark`;
+  const url = `${window.location.protocol}//${window.location.host}/grafana/d/${dashboardUid}?kiosk=tv&theme=dark`;
   
   return (
     <div className="panel" style={{ marginTop: "2rem", padding: "1rem", height: "800px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
         <h2 style={{ fontSize: "1.2rem", fontWeight: 800, margin: 0 }}>{title}</h2>
-        <a href={`${window.location.protocol}//${window.location.hostname}:3091/d/${dashboardUid}`} target="_blank" rel="noreferrer" className="secondary-button" style={{ fontSize: "0.8rem", padding: "0.4rem 0.8rem", textDecoration: "none" }}>
+        <a href={`${window.location.protocol}//${window.location.host}/grafana/d/${dashboardUid}`} target="_blank" rel="noreferrer" className="secondary-button" style={{ fontSize: "0.8rem", padding: "0.4rem 0.8rem", textDecoration: "none" }}>
           Open in Grafana ↗
         </a>
       </div>
@@ -288,7 +288,7 @@ export default function MonitoringPage({ projects }) {
           </button>
         ))}
         
-        <a href={`${window.location.protocol}//${window.location.hostname}:3091`} target="_blank" rel="noreferrer" style={{
+        <a href={`${window.location.protocol}//${window.location.host}/grafana`} target="_blank" rel="noreferrer" style={{
           marginLeft: "auto",
           background: "var(--bg-card)",
           color: "var(--text-primary)",

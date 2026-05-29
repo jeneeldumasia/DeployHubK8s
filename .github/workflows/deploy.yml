@@ -641,7 +641,6 @@ jobs:
           kubectl apply -f k8s_rendered/base/namespace.yaml
           kubectl apply -f k8s_rendered/base/secrets.yaml
           kubectl delete ingress deployhub-ingress -n deployhub --ignore-not-found=true || true
-          kubectl delete ingress --all -n deployhub-apps || true
           
           echo "⏳ Applying EKS overlays (retrying if webhook is not ready)..."
           for i in $(seq 1 18); do

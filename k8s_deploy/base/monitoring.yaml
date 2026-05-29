@@ -468,6 +468,10 @@ spec:
               value: "true"
             - name: GF_SECURITY_ALLOW_EMBEDDING
               value: "true"
+            - name: GF_SERVER_ROOT_URL
+              value: "https://deployhub.jeneeldumasia.codes/grafana/"
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
           resources:
             requests:
               cpu: "100m"

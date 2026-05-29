@@ -251,7 +251,7 @@ resource "aws_lb_listener" "https" {
 # Routing rules on HTTP listener
 resource "aws_lb_listener_rule" "dashboard" {
   listener_arn = aws_lb_listener.https.arn
-  priority     = 100
+  priority     = 28
 
   action {
     type             = "forward"

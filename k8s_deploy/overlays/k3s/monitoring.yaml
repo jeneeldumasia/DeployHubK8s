@@ -41,6 +41,34 @@ data:
             action: keep
             regex: "true"
 
+      # Scrape Kubernetes Nodes (kubelet) for Node-level metrics
+      - job_name: kubernetes-nodes
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      # Scrape cAdvisor for Per-Pod/Container resource metrics
+      - job_name: kubernetes-cadvisor
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __metrics_path__
+            replacement: /metrics/cadvisor
+
     # Alert rules file (loaded from ConfigMap below)
     rule_files:
       - /etc/prometheus/alerts.yml
@@ -86,6 +114,46 @@ data:
               description: "Restart count is {{ $value }}."
 ---
 apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: deployhub
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/metrics
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    verbs: ["get"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: deployhub
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: prometheus-data-pvc
@@ -112,6 +180,7 @@ spec:
       labels:
         app: prometheus
     spec:
+      serviceAccountName: prometheus
       containers:
         - name: prometheus
           image: prom/prometheus:v2.52.0
@@ -395,6 +464,10 @@ spec:
               value: "Viewer"
             - name: GF_AUTH_ANONYMOUS_ORG_NAME
               value: "Main Org."
+            - name: GF_AUTH_ANONYMOUS_HIDE_VERSION
+              value: "true"
+            - name: GF_SECURITY_ALLOW_EMBEDDING
+              value: "true"
           resources:
             requests:
               cpu: "100m"
@@ -413,6 +486,10 @@ spec:
               mountPath: /etc/grafana/dashboards/deployhub
             - name: grafana-dashboard-app-overview
               mountPath: /etc/grafana/dashboards/app-overview
+            - name: grafana-dashboard-node-overview
+              mountPath: /etc/grafana/dashboards/node-overview
+            - name: grafana-dashboard-pod-overview
+              mountPath: /etc/grafana/dashboards/pod-overview
           livenessProbe:
             httpGet:
               path: /api/health
@@ -441,6 +518,12 @@ spec:
         - name: grafana-dashboard-app-overview
           configMap:
             name: grafana-dashboard-app-overview
+        - name: grafana-dashboard-node-overview
+          configMap:
+            name: grafana-dashboard-node-overview
+        - name: grafana-dashboard-pod-overview
+          configMap:
+            name: grafana-dashboard-pod-overview
 ---
 apiVersion: v1
 kind: Service
@@ -455,3 +538,104 @@ spec:
       targetPort: 3000
       nodePort: 3091
   type: NodePort
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-node-overview
+  namespace: deployhub
+data:
+  node-overview.json: |
+    {
+      "title": "Node Resources",
+      "uid": "node-overview",
+      "schemaVersion": 38,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "templating": {
+        "list": [{
+          "name": "node",
+          "type": "query",
+          "label": "Node",
+          "datasource": "Prometheus",
+          "query": "label_values(kubernetes_io_hostname)",
+          "refresh": 2,
+          "includeAll": true,
+          "allValue": ".*"
+        }]
+      },
+      "panels": [
+        {
+          "id": 1, "type": "timeseries", "title": "Node CPU Usage (cores)",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "targets": [{ "expr": "sum(rate(container_cpu_usage_seconds_total{id=\"/\", instance=~\"$node.*\"}[5m])) by (instance)", "legendFormat": "{{instance}}" }]
+        },
+        {
+          "id": 2, "type": "timeseries", "title": "Node Memory Usage (Bytes)",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "targets": [{ "expr": "sum(container_memory_working_set_bytes{id=\"/\", instance=~\"$node.*\"}) by (instance)", "legendFormat": "{{instance}}" }],
+          "options": { "standardOptions": { "color": { "mode": "palette-classic" } } }
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-pod-overview
+  namespace: deployhub
+data:
+  pod-overview.json: |
+    {
+      "title": "Pod Resources",
+      "uid": "pod-overview",
+      "schemaVersion": 38,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "namespace",
+            "type": "query",
+            "label": "Namespace",
+            "datasource": "Prometheus",
+            "query": "label_values(container_cpu_usage_seconds_total, namespace)",
+            "refresh": 2,
+            "includeAll": true,
+            "allValue": ".*"
+          },
+          {
+            "name": "pod",
+            "type": "query",
+            "label": "Pod",
+            "datasource": "Prometheus",
+            "query": "label_values(container_cpu_usage_seconds_total{namespace=~\"$namespace\"}, pod)",
+            "refresh": 2,
+            "includeAll": true,
+            "allValue": ".*"
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1, "type": "timeseries", "title": "Pod CPU Usage (cores)",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "targets": [{ "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"POD\", container!=\"\"}[5m])) by (pod)", "legendFormat": "{{pod}}" }]
+        },
+        {
+          "id": 2, "type": "timeseries", "title": "Pod Memory Usage (Bytes)",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "targets": [{ "expr": "sum(container_memory_working_set_bytes{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"POD\", container!=\"\"}) by (pod)", "legendFormat": "{{pod}}" }]
+        },
+        {
+          "id": 3, "type": "timeseries", "title": "Network Receive (Bytes/s)",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "targets": [{ "expr": "sum(rate(container_network_receive_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\"}[5m])) by (pod)", "legendFormat": "{{pod}}" }]
+        },
+        {
+          "id": 4, "type": "timeseries", "title": "Network Transmit (Bytes/s)",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "targets": [{ "expr": "sum(rate(container_network_transmit_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\"}[5m])) by (pod)", "legendFormat": "{{pod}}" }]
+        }
+      ]
+    }

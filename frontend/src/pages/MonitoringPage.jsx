@@ -218,51 +218,136 @@ function AppHealthSection({ projects }) {
   );
 }
 
+function GrafanaIframe({ dashboardUid, title }) {
+  const url = `${window.location.protocol}//${window.location.hostname}:3091/d/${dashboardUid}?kiosk=tv&theme=dark`;
+  
+  return (
+    <div className="panel" style={{ marginTop: "2rem", padding: "1rem", height: "800px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+        <h2 style={{ fontSize: "1.2rem", fontWeight: 800, margin: 0 }}>{title}</h2>
+        <a href={`${window.location.protocol}//${window.location.hostname}:3091/d/${dashboardUid}`} target="_blank" rel="noreferrer" className="secondary-button" style={{ fontSize: "0.8rem", padding: "0.4rem 0.8rem", textDecoration: "none" }}>
+          Open in Grafana ↗
+        </a>
+      </div>
+      <iframe
+        src={url}
+        width="100%"
+        height="100%"
+        style={{ border: "none", borderRadius: "8px", background: "#111217" }}
+        title={title}
+      />
+    </div>
+  );
+}
+
 export default function MonitoringPage({ projects }) {
   const { data: sys } = useSystemStats(10000);
+  const [activeTab, setActiveTab] = useState("native");
+
+  const tabs = [
+    { id: "native", label: "Native Health" },
+    { id: "deployhub", label: "DeployHub Platform" },
+    { id: "apps", label: "User Apps" },
+    { id: "nodes", label: "Node Resources" },
+    { id: "pods", label: "Pod Resources" },
+  ];
 
   return (
     <div>
-      <div className="page-header">
+      <div className="page-header" style={{ marginBottom: "1.5rem" }}>
         <h1>Monitoring</h1>
         <p>System health, cluster metrics, and live application resources.</p>
       </div>
 
-      <div className="panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-        <div>
-          <h2 style={{ fontSize: "1rem", fontWeight: 800 }}>System Health</h2>
-          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Platform control plane status.</p>
-        </div>
+      <div style={{ 
+        display: "flex", 
+        gap: "0.5rem", 
+        marginBottom: "2rem", 
+        borderBottom: "1px solid var(--border)", 
+        paddingBottom: "0.5rem",
+        overflowX: "auto"
+      }}>
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              background: activeTab === tab.id ? "var(--accent-primary)" : "transparent",
+              color: activeTab === tab.id ? "#fff" : "var(--text-secondary)",
+              border: "1px solid",
+              borderColor: activeTab === tab.id ? "var(--accent-primary)" : "var(--border-strong)",
+              padding: "0.4rem 1rem",
+              borderRadius: "20px",
+              fontSize: "0.85rem",
+              fontWeight: 700,
+              cursor: "pointer",
+              transition: "all 0.2s"
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
         
-        <div style={{ display: 'flex', gap: '2rem' }}>
-          <div>
-            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>Backend API</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys ? 'var(--status-running)' : 'var(--status-failed)' }}>
-              {sys ? 'Operational' : 'Down'}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>Docker / BuildKit</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys?.docker_available ? 'var(--status-running)' : 'var(--status-failed)' }}>
-              {sys?.docker_available ? 'Operational' : 'Down'}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>Database</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys?.mongodb_available ? 'var(--status-running)' : 'var(--status-failed)' }}>
-              {sys?.mongodb_available ? 'Operational' : 'Down'}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>Kubernetes</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys?.docker_available ? 'var(--status-running)' : 'var(--status-failed)' }}>
-              {sys?.docker_available ? 'Operational' : 'Down'}
-            </div>
-          </div>
-        </div>
+        <a href={`${window.location.protocol}//${window.location.hostname}:3091`} target="_blank" rel="noreferrer" style={{
+          marginLeft: "auto",
+          background: "var(--bg-card)",
+          color: "var(--text-primary)",
+          border: "1px solid var(--border-strong)",
+          padding: "0.4rem 1rem",
+          borderRadius: "20px",
+          fontSize: "0.85rem",
+          fontWeight: 700,
+          textDecoration: "none",
+          display: "inline-flex",
+          alignItems: "center"
+        }}>
+          Grafana Home ↗
+        </a>
       </div>
 
-      <AppHealthSection projects={projects} />
+      {activeTab === "native" && (
+        <>
+          <div className="panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <h2 style={{ fontSize: "1rem", fontWeight: 800 }}>System Health</h2>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Platform control plane status.</p>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '2rem' }}>
+              <div>
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>Backend API</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys ? 'var(--status-running)' : 'var(--status-failed)' }}>
+                  {sys ? 'Operational' : 'Down'}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>Docker / BuildKit</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys?.docker_available ? 'var(--status-running)' : 'var(--status-failed)' }}>
+                  {sys?.docker_available ? 'Operational' : 'Down'}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>Database</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys?.mongodb_available ? 'var(--status-running)' : 'var(--status-failed)' }}>
+                  {sys?.mongodb_available ? 'Operational' : 'Down'}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>Kubernetes</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys?.docker_available ? 'var(--status-running)' : 'var(--status-failed)' }}>
+                  {sys?.docker_available ? 'Operational' : 'Down'}
+                </div>
+              </div>
+            </div>
+          </div>
+          <AppHealthSection projects={projects} />
+        </>
+      )}
+
+      {activeTab === "deployhub" && <GrafanaIframe dashboardUid="deployhub-overview" title="DeployHub Platform" />}
+      {activeTab === "apps" && <GrafanaIframe dashboardUid="app-overview" title="User Applications" />}
+      {activeTab === "nodes" && <GrafanaIframe dashboardUid="node-overview" title="Node Resources" />}
+      {activeTab === "pods" && <GrafanaIframe dashboardUid="pod-overview" title="Pod Resources" />}
     </div>
   );
 }

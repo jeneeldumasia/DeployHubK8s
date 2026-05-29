@@ -651,7 +651,7 @@ jobs:
 
       - name: Wait for rollout
         run: |
-          if ! kubectl rollout status deployment/backend -n deployhub --timeout=180s; then
+          if ! kubectl rollout status deployment/backend -n deployhub --timeout=600s; then
             echo "❌ Backend rollout failed! Fetching logs and events for debugging..."
             kubectl describe pods -l app=deployhub-backend -n deployhub
             kubectl logs -l app=deployhub-backend -n deployhub --all-containers --tail=100 || true

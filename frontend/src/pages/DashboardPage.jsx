@@ -175,7 +175,7 @@ export default function DashboardPage({
                   </div>
                   <div className="project-card-actions" style={{ marginTop: '0.75rem', paddingTop: '0.75rem' }}>
                     {url && p.status === "running" && (
-                      <a href={url} target="_blank" rel="noreferrer" className="secondary-button" style={{ textDecoration: 'none', padding: '0.35rem 0.75rem', fontSize: '0.75rem', borderRadius: '6px' }}>Open App ↗</a>
+                      <a href={url} target="_blank" rel="noreferrer" className="button" style={{ textDecoration: 'none', padding: '0.35rem 0.75rem', fontSize: '0.75rem', borderRadius: '6px' }}>Open App ↗</a>
                     )}
                     <button type="button" className="secondary-button" style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', borderRadius: '6px' }} onClick={() => setPage("projects")}>Details</button>
                   </div>

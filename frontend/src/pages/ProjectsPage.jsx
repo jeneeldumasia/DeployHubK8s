@@ -105,7 +105,7 @@ export default function ProjectsPage({
                     href={url}
                     target="_blank"
                     rel="noreferrer"
-                    className="secondary-button"
+                    className="button"
                     style={{ textDecoration: 'none' }}
                   >
                     Open ↗

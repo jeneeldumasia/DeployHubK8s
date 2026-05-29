@@ -183,6 +183,10 @@ body {
   opacity: 1;
 }
 
+[data-theme='dark'] .ring-node {
+  color: var(--text-primary);
+}
+
 .ring-node.active {
   background: var(--text-primary);
   border-color: var(--text-primary);
@@ -237,7 +241,7 @@ body {
 /* ═══════════════════════════════════════════════════════════════
    GLOBAL BUTTONS  (non-radial)
 ═══════════════════════════════════════════════════════════════ */
-button {
+button, a.button {
   background: var(--accent-primary);
   color: #fff;
   border: none;
@@ -248,9 +252,13 @@ button {
   cursor: pointer;
   font-family: inherit;
   transition: opacity 0.15s, transform 0.12s, box-shadow 0.15s;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-button:hover:not(:disabled) {
+button:hover:not(:disabled), a.button:hover {
   opacity: 0.88;
   transform: translateY(-1px);
   box-shadow: 0 4px 12px var(--accent-glow);
@@ -260,7 +268,8 @@ button:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
 button:disabled { opacity: 0.38; cursor: not-allowed; }
 
 /* Dark mode: only the primary accent button needs dark text (cyan bg) */
-[data-theme='dark'] button:not(.secondary-button):not(.danger-button):not(.radial-trigger):not(.radial-theme-toggle):not(.radial-item) {
+[data-theme='dark'] button:not(.secondary-button):not(.danger-button):not(.radial-trigger):not(.radial-theme-toggle):not(.radial-item),
+[data-theme='dark'] a.button:not(.secondary-button) {
   color: #0d1117;
 }
 

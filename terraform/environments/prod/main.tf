@@ -249,6 +249,20 @@ resource "aws_lb_listener" "https" {
 }
 
 # Routing rules on HTTP listener
+resource "aws_lb_listener_rule" "dashboard" {
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 5
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.frontend.arn
+  }
+
+  condition {
+    host_header { values = ["deployhub.jeneeldumasia.codes"] }
+  }
+}
+
 resource "aws_lb_listener_rule" "api" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 10

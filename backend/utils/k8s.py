@@ -37,7 +37,7 @@ def _ensure_apps_namespace_sync() -> None:
             raise
 
 
-def _create_deployment_sync(name: str, image: str, port: int, node_port: int = None, env_vars: dict = None) -> dict:
+def _create_deployment_sync(name: str, image: str, port: int, node_port: int = None, env_vars: dict = None, project_name: str = None) -> dict:
     _ensure_apps_namespace_sync()
     v1 = _get_k8s_client()
     apps_v1 = client.AppsV1Api()
@@ -60,7 +60,7 @@ def _create_deployment_sync(name: str, image: str, port: int, node_port: int = N
         "kind": "Deployment",
         "metadata": {
             "name": name,
-            "labels": {"app": name},
+            "labels": {"app": name, "deployhub_project": project_name or name},
         },
         "spec": {
             "replicas": 2,
@@ -69,7 +69,7 @@ def _create_deployment_sync(name: str, image: str, port: int, node_port: int = N
             },
             "template": {
                 "metadata": {
-                    "labels": {"app": name}
+                    "labels": {"app": name, "deployhub_project": project_name or name}
                 },
                 "spec": {
                     "imagePullSecrets": [{"name": "ecr-private-key"}],
@@ -205,9 +205,9 @@ def _get_occupied_node_ports_sync() -> list[int]:
 
 # ── Async wrappers (run blocking SDK calls in a thread pool) ──────────────────
 
-async def create_deployment(name: str, image: str, port: int, node_port: int = None, env_vars: dict = None) -> dict:
+async def create_deployment(name: str, image: str, port: int, node_port: int = None, env_vars: dict = None, project_name: str = None) -> dict:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, partial(_create_deployment_sync, name, image, port, node_port, env_vars))
+    return await loop.run_in_executor(None, partial(_create_deployment_sync, name, image, port, node_port, env_vars, project_name))
 
 
 async def delete_deployment(name: str) -> dict:
@@ -350,17 +350,19 @@ def _get_deployment_restart_count_sync(name: str) -> int:
         return 0
 
 
-def _get_all_deployment_restart_counts_sync() -> dict[str, int]:
-    """Return {deployment_name: restart_count} for all deployhub-managed deployments."""
+def _get_all_deployment_restart_counts_sync() -> dict[str, tuple[int, str]]:
+    """Return {deployment_name: (restart_count, project_name)} for all deployhub-managed deployments."""
     try:
         v1 = _get_k8s_client()
         pods = v1.list_namespaced_pod(namespace=_user_namespace())
         result = {}
         for pod in pods.items:
             app_label = pod.metadata.labels.get("app") if pod.metadata.labels else None
+            project_name = pod.metadata.labels.get("deployhub_project", app_label) if pod.metadata.labels else app_label
             if app_label and app_label.startswith("deployhub-"):
                 container_statuses = pod.status.container_statuses or []
-                result[app_label] = result.get(app_label, 0) + sum(cs.restart_count for cs in container_statuses)
+                current_count = result.get(app_label, (0, project_name))[0]
+                result[app_label] = (current_count + sum(cs.restart_count for cs in container_statuses), project_name)
         return result
     except Exception:
         return {}
@@ -378,7 +380,7 @@ async def get_deployment_restart_count(name: str) -> int:
     return await loop.run_in_executor(None, partial(_get_deployment_restart_count_sync, name))
 
 
-async def get_all_deployment_restart_counts() -> dict[str, int]:
+async def get_all_deployment_restart_counts() -> dict[str, tuple[int, str]]:
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _get_all_deployment_restart_counts_sync)
 

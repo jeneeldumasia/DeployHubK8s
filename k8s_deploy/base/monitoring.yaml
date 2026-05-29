@@ -263,6 +263,19 @@ data:
         access: proxy
         isDefault: false
         editable: false
+        jsonData:
+          derivedFields:
+            - datasourceUid: jaeger
+              matcherRegex: "trace_id=(\\w+)"
+              name: TraceID
+              url: '${__value.raw}'
+      - name: Jaeger
+        type: jaeger
+        uid: jaeger
+        url: http://jaeger:16686
+        access: proxy
+        isDefault: false
+        editable: false
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -337,14 +350,16 @@ data:
           "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
           "targets": [
             { "expr": "rate(http_requests_total[5m])", "legendFormat": "{{method}} {{path}} {{status_code}}" }
-          ]
+          ],
+          "fieldConfig": { "defaults": { "unit": "reqps" } }
         },
         {
           "id": 8, "type": "timeseries", "title": "HTTP Latency p95 (ms)",
           "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
           "targets": [
             { "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) * 1000", "legendFormat": "{{path}}" }
-          ]
+          ],
+          "fieldConfig": { "defaults": { "unit": "ms" } }
         },
         {
           "id": 9, "type": "table", "title": "Pod Restart Counts",
@@ -376,7 +391,7 @@ data:
           "type": "query",
           "label": "App",
           "datasource": "Prometheus",
-          "query": "label_values(deployhub_pod_restarts_total, pod_name)",
+          "query": "label_values(deployhub_pod_restarts_total, project_name)",
           "refresh": 2,
           "includeAll": true,
           "allValue": ".*"
@@ -575,13 +590,15 @@ data:
         {
           "id": 1, "type": "timeseries", "title": "Node CPU Usage (cores)",
           "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
-          "targets": [{ "expr": "sum(rate(container_cpu_usage_seconds_total{id=\"/\", instance=~\"$node.*\"}[5m])) by (instance)", "legendFormat": "{{instance}}" }]
+          "targets": [{ "expr": "sum(rate(container_cpu_usage_seconds_total{id=\"/\", instance=~\"$node.*\"}[5m])) by (instance)", "legendFormat": "{{instance}}" }],
+          "fieldConfig": { "defaults": { "unit": "none" } }
         },
         {
           "id": 2, "type": "timeseries", "title": "Node Memory Usage (Bytes)",
           "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
           "targets": [{ "expr": "sum(container_memory_working_set_bytes{id=\"/\", instance=~\"$node.*\"}) by (instance)", "legendFormat": "{{instance}}" }],
-          "options": { "standardOptions": { "color": { "mode": "palette-classic" } } }
+          "options": { "standardOptions": { "color": { "mode": "palette-classic" } } },
+          "fieldConfig": { "defaults": { "unit": "bytes" } }
         }
       ]
     }

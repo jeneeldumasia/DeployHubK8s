@@ -186,6 +186,8 @@ data:
             target_label: pod
           - source_labels: [__meta_kubernetes_pod_label_app]
             target_label: app
+          - source_labels: [__meta_kubernetes_pod_label_deployhub_project]
+            target_label: project_name
           - source_labels: [__meta_kubernetes_namespace]
             target_label: namespace
           - source_labels: [__meta_kubernetes_pod_annotation_promtail_ignore]
@@ -206,6 +208,8 @@ data:
             target_label: pod
           - source_labels: [__meta_kubernetes_pod_label_app]
             target_label: app
+          - source_labels: [__meta_kubernetes_pod_label_deployhub_project]
+            target_label: project_name
           - source_labels: [__meta_kubernetes_namespace]
             target_label: namespace
           - source_labels: [__meta_kubernetes_pod_annotation_promtail_ignore]

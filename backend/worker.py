@@ -226,13 +226,18 @@ class DeploymentWorker:
 
                 await record_log(f"Deploying Deployment {container_name} with public NodePort {assigned_port}")
                 
+                # Extract human readable project name
+                repo_url = project.get("repo_url", "")
+                project_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "") if repo_url else container_name
+                
                 # 1. Start the new deployment container
                 deployment_result = await create_deployment(
                     name=container_name,
                     image=registry_image,
                     port=container_port,
                     node_port=assigned_port,
-                    env_vars=project.get("env_vars", {}),
+                    env_vars=env_vars,
+                    project_name=project_name
                 )
                 if deployment_result.get("status") == "error":
                     raise RuntimeError(f"K8s deployment creation failed: {deployment_result.get('error')}")
@@ -293,7 +298,7 @@ class DeploymentWorker:
                         "HOST": "0.0.0.0",
                         "BIND_ADDRESS": "0.0.0.0",
                         # User-supplied env vars override defaults
-                        **project.get("env_vars", {}),
+                        **env_vars,
                     },
                 )
                 for line in run_logs:
@@ -361,13 +366,16 @@ class DeploymentWorker:
                 await record_log(f"🔄 Attempting rollback to previous image: {previous_image}")
                 try:
                     rollback_port = project.get("assigned_port")
+                    repo_url = project.get("repo_url", "")
+                    project_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "") if repo_url else container_name
                     if rollback_port:
                         rb_result = await create_deployment(
                             name=container_name,
                             image=previous_image,
                             port=self._default_container_port(project.get("project_type", "unknown")),
                             node_port=rollback_port,
-                            env_vars=project.get("env_vars", {}),
+                            env_vars=env_vars,
+                            project_name=project_name
                         )
                         if rb_result["status"] == "success":
                             await update_project(project_id, {
@@ -744,12 +752,16 @@ class DeploymentWorker:
         await update_project(project_id, {"status": "building",
                                           "build_logs": [timestamped_log("Rollback started")]})
         await self.stop_project_resources(project)
+        repo_url = project.get("repo_url", "")
+        project_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "") if repo_url else container_name
+        
         pod_result = await create_deployment(
             name=container_name,
             image=rollback_image,
             port=container_port,
             node_port=project.get("assigned_port"),
             env_vars=project.get("env_vars", {}),
+            project_name=project_name
         )
         if pod_result.get("status") == "error":
             await update_project(project_id, {

@@ -11,3 +11,5 @@ resources:
   - registry.yaml
   - backups.yaml
   - monitoring.yaml
+  - logging.yaml
+  - jaeger.yaml

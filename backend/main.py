@@ -6,6 +6,13 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
 from fastapi import FastAPI, HTTPException, Response, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -203,6 +210,14 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
+# Setup OpenTelemetry Tracing
+resource = Resource(attributes={"service.name": "deployhub-backend"})
+provider = TracerProvider(resource=resource)
+processor = BatchSpanProcessor(OTLPSpanExporter(endpoint="http://jaeger:4317", insecure=True))
+provider.add_span_processor(processor)
+trace.set_tracer_provider(provider)
+FastAPIInstrumentor.instrument_app(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -677,8 +692,8 @@ async def metrics_endpoint() -> Response:
             running_count, restart_counts = await asyncio.gather(
                 count_running_deployhub_deployments(), get_all_deployment_restart_counts())
             deployhub_active_containers.set(running_count)
-            for pod_name, count in restart_counts.items():
-                deployhub_pod_restarts_total.labels(pod_name=pod_name).set(count)
+            for pod_name, (count, project_name) in restart_counts.items():
+                deployhub_pod_restarts_total.labels(pod_name=pod_name, project_name=project_name).set(count)
         else:
             deployhub_active_containers.set(await count_running_deployhub_containers())
         payload, content_type = await metrics_response()
@@ -698,7 +713,9 @@ async def get_project_health_endpoint(project_id: str) -> dict:
     if not container_name or project.get("status") not in ("running", "failed", "building"):
         return {"project_id": project_id, "status": project.get("status"), "pod": None}
     pod = await get_pod_status(container_name)
-    deployhub_pod_restarts_total.labels(pod_name=container_name).set(pod["restart_count"])
+    repo_url = project.get("repo_url", "")
+    project_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "") if repo_url else container_name
+    deployhub_pod_restarts_total.labels(pod_name=container_name, project_name=project_name).set(pod["restart_count"])
     return {
         "project_id": project_id,
         "status": project.get("status"),

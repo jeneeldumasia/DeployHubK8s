@@ -36,7 +36,7 @@ deployhub_health_check_failures_total = Counter(
 deployhub_pod_restarts_total = Gauge(
     "deployhub_pod_restarts_total",
     "Total container restart count for a deployed pod",
-    ["pod_name"],
+    ["pod_name", "project_name"],
 )
 deployhub_deployment_success_total = Counter(
     "deployhub_deployment_success_total",

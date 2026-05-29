@@ -59,6 +59,10 @@ spec:
       serviceAccountName: backend-sa
       imagePullSecrets:
         - name: ecr-private-key
+      initContainers:
+        - name: wait-for-mongo
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z mongodb 27017; do echo "Waiting for MongoDB..."; sleep 5; done']
       containers:
         - name: backend
           image: deployhub-backend:latest

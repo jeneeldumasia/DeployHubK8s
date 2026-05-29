@@ -236,7 +236,7 @@ class DeploymentWorker:
                     image=registry_image,
                     port=container_port,
                     node_port=assigned_port,
-                    env_vars=env_vars,
+                    env_vars=project.get("env_vars", {}),
                     project_name=project_name
                 )
                 if deployment_result.get("status") == "error":
@@ -298,7 +298,7 @@ class DeploymentWorker:
                         "HOST": "0.0.0.0",
                         "BIND_ADDRESS": "0.0.0.0",
                         # User-supplied env vars override defaults
-                        **env_vars,
+                        **project.get("env_vars", {}),
                     },
                 )
                 for line in run_logs:
@@ -374,7 +374,7 @@ class DeploymentWorker:
                             image=previous_image,
                             port=self._default_container_port(project.get("project_type", "unknown")),
                             node_port=rollback_port,
-                            env_vars=env_vars,
+                            env_vars=project.get("env_vars", {}),
                             project_name=project_name
                         )
                         if rb_result["status"] == "success":

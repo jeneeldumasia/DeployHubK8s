@@ -237,26 +237,26 @@ export default function MonitoringPage({ projects }) {
         <div style={{ display: 'flex', gap: '2rem' }}>
           <div>
             <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>Backend API</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys?.backend === 'ok' ? 'var(--status-running)' : 'var(--status-failed)' }}>
-              {sys?.backend === 'ok' ? 'Operational' : 'Down'}
+            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys ? 'var(--status-running)' : 'var(--status-failed)' }}>
+              {sys ? 'Operational' : 'Down'}
             </div>
           </div>
           <div>
             <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>Docker / BuildKit</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys?.docker === 'ok' ? 'var(--status-running)' : 'var(--status-failed)' }}>
-              {sys?.docker === 'ok' ? 'Operational' : 'Down'}
+            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys?.docker_available ? 'var(--status-running)' : 'var(--status-failed)' }}>
+              {sys?.docker_available ? 'Operational' : 'Down'}
             </div>
           </div>
           <div>
             <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>Database</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys?.db === 'ok' ? 'var(--status-running)' : 'var(--status-failed)' }}>
-              {sys?.db === 'ok' ? 'Operational' : 'Down'}
+            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys?.mongodb_available ? 'var(--status-running)' : 'var(--status-failed)' }}>
+              {sys?.mongodb_available ? 'Operational' : 'Down'}
             </div>
           </div>
           <div>
             <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 800 }}>Kubernetes</div>
-            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys?.k8s === 'ok' ? 'var(--status-running)' : 'var(--status-failed)' }}>
-              {sys?.k8s === 'ok' ? 'Operational' : 'Down'}
+            <div style={{ fontSize: '1.2rem', fontWeight: 800, color: sys?.docker_available ? 'var(--status-running)' : 'var(--status-failed)' }}>
+              {sys?.docker_available ? 'Operational' : 'Down'}
             </div>
           </div>
         </div>

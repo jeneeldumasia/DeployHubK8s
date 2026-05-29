@@ -68,11 +68,11 @@ export default function ProjectsPage({
               
               <div className="card-meta">
                 <div>
-                  <span>Type</span>
+                  <span>Type: </span>
                   <strong>{p.project_type}{p.context_path ? ` (${p.context_path})` : ""}</strong>
                 </div>
                 <div>
-                  <span>URL</span>
+                  <span>URI: </span>
                   {url ? (
                     <a href={url} target="_blank" rel="noreferrer" style={{color: 'var(--accent-primary)', textDecoration: 'underline'}}>
                       {url.replace("http://", "")}
@@ -80,7 +80,7 @@ export default function ProjectsPage({
                   ) : <strong>Pending</strong>}
                 </div>
                 <div>
-                  <span>Last Updated</span>
+                  <span>Last Updated: </span>
                   <strong>{new Date(p.updated_at).toLocaleString()}</strong>
                 </div>
               </div>

@@ -655,7 +655,12 @@ jobs:
             echo "❌ Backend rollout failed! Fetching logs and events for debugging..."
             kubectl describe pods -l app=deployhub-backend -n deployhub
             kubectl logs -l app=deployhub-backend -n deployhub --all-containers --tail=100 || true
-            kubectl logs -l app=deployhub-backend -n deployhub --all-containers --previous --tail=100 || true
+            echo "--- MONGODB STATUS ---"
+            kubectl get pods -l app=mongodb -n deployhub
+            kubectl describe pods -l app=mongodb -n deployhub
+            kubectl logs -l app=mongodb -n deployhub --all-containers --tail=200 || true
+            kubectl get pvc -n deployhub
+            kubectl get events -n deployhub --sort-by='.metadata.creationTimestamp'
             exit 1
           fi
           kubectl rollout status deployment/frontend -n deployhub --timeout=90s

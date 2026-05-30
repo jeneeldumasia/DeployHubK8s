@@ -34,20 +34,41 @@ class RepoAnalyzer:
             # 1. Check for Node.js
             if 'package.json' in files:
                 services.append(self._analyze_node(root, rel_path))
-                # If we find a package.json, we usually don't need to look deeper in THIS specific folder
-                # unless it's a monorepo root (but we'll handle subfolders separately anyway)
             
             # 2. Check for Python
             elif any(f in files for f in ['requirements.txt', 'pyproject.toml', 'manage.py']):
                 services.append(self._analyze_python(root, rel_path))
 
-            # 3. Check for Static (HTML) - only if no other service found in this dir
+            # 3. Check for PHP
+            elif 'composer.json' in files or 'index.php' in files:
+                services.append(DetectedService(name=os.path.basename(root) or self._repo_name, path=rel_path, type="php"))
+
+            # 4. Check for Go
+            elif 'go.mod' in files:
+                services.append(DetectedService(name=os.path.basename(root) or self._repo_name, path=rel_path, type="go"))
+
+            # 5. Check for Rust
+            elif 'Cargo.toml' in files:
+                services.append(DetectedService(name=os.path.basename(root) or self._repo_name, path=rel_path, type="rust"))
+
+            # 6. Check for Java
+            elif 'pom.xml' in files or 'build.gradle' in files:
+                services.append(DetectedService(name=os.path.basename(root) or self._repo_name, path=rel_path, type="java"))
+
+            # 7. Check for Ruby
+            elif 'Gemfile' in files:
+                services.append(DetectedService(name=os.path.basename(root) or self._repo_name, path=rel_path, type="ruby"))
+
+            # 8. Check for Static (HTML) 
+            # Restrict to root or common web build directories to avoid legacy PHP dummy index.html files
             elif 'index.html' in files and not any(s.path == rel_path for s in services):
-                services.append(DetectedService(
-                    name=os.path.basename(root) or "root-static",
-                    path=rel_path,
-                    type="static"
-                ))
+                basename = os.path.basename(root).lower()
+                if rel_path == "" or basename in {'public', 'dist', 'build', 'www', 'html', 'client', 'web'}:
+                    services.append(DetectedService(
+                        name=os.path.basename(root) or self._repo_name,
+                        path=rel_path,
+                        type="static"
+                    ))
 
         return services
 

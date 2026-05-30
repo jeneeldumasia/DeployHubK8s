@@ -410,16 +410,16 @@ data:
           "targets": [{ "expr": "deployhub_pod_restarts_total{pod_name=~\"$app\"}", "legendFormat": "{{pod_name}}" }]
         },
         {
-          "id": 3, "type": "timeseries", "title": "Log Volume (lines/min)",
+          "id": 3, "type": "timeseries", "title": "Log Volume",
           "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
           "datasource": "Loki",
-          "targets": [{ "expr": "sum(rate({namespace=\"deployhub-apps\", app=~\"$app\"}[1m])) by (app)", "legendFormat": "{{app}}" }]
+          "targets": [{ "expr": "sum(rate({namespace=\"deployhub-apps\", project_name=~\"$app\"}[1m])) by (project_name)", "legendFormat": "{{project_name}}" }]
         },
         {
           "id": 4, "type": "logs", "title": "App Logs",
           "gridPos": { "x": 0, "y": 12, "w": 24, "h": 12 },
           "datasource": "Loki",
-          "targets": [{ "expr": "{namespace=\"deployhub-apps\", app=~\"$app\"}" }],
+          "targets": [{ "expr": "{namespace=\"deployhub-apps\", project_name=~\"$app\"}" }],
           "options": { "dedupStrategy": "none", "showLabels": true, "wrapLogMessage": true }
         }
       ]
@@ -588,13 +588,13 @@ data:
       },
       "panels": [
         {
-          "id": 1, "type": "timeseries", "title": "Node CPU Usage (cores)",
+          "id": 1, "type": "timeseries", "title": "Node CPU Usage (%)",
           "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
-          "targets": [{ "expr": "sum(rate(container_cpu_usage_seconds_total{id=\"/\", instance=~\"$node.*\"}[5m])) by (instance)", "legendFormat": "{{instance}}" }],
-          "fieldConfig": { "defaults": { "unit": "none" } }
+          "targets": [{ "expr": "sum(rate(container_cpu_usage_seconds_total{id=\"/\", instance=~\"$node.*\"}[5m])) by (instance) / sum(machine_cpu_cores{instance=~\"$node.*\"}) by (instance)", "legendFormat": "{{instance}}" }],
+          "fieldConfig": { "defaults": { "unit": "percentunit" } }
         },
         {
-          "id": 2, "type": "timeseries", "title": "Node Memory Usage (Bytes)",
+          "id": 2, "type": "timeseries", "title": "Node Memory Usage",
           "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
           "targets": [{ "expr": "sum(container_memory_working_set_bytes{id=\"/\", instance=~\"$node.*\"}) by (instance)", "legendFormat": "{{instance}}" }],
           "options": { "standardOptions": { "color": { "mode": "palette-classic" } } },
@@ -647,19 +647,22 @@ data:
           "targets": [{ "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"POD\", container!=\"\"}[5m])) by (pod)", "legendFormat": "{{pod}}" }]
         },
         {
-          "id": 2, "type": "timeseries", "title": "Pod Memory Usage (Bytes)",
+          "id": 2, "type": "timeseries", "title": "Pod Memory Usage",
           "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
-          "targets": [{ "expr": "sum(container_memory_working_set_bytes{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"POD\", container!=\"\"}) by (pod)", "legendFormat": "{{pod}}" }]
+          "targets": [{ "expr": "sum(container_memory_working_set_bytes{namespace=~\"$namespace\", pod=~\"$pod\", container!=\"POD\", container!=\"\"}) by (pod)", "legendFormat": "{{pod}}" }],
+          "fieldConfig": { "defaults": { "unit": "bytes" } }
         },
         {
-          "id": 3, "type": "timeseries", "title": "Network Receive (Bytes/s)",
+          "id": 3, "type": "timeseries", "title": "Network Receive",
           "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
-          "targets": [{ "expr": "sum(rate(container_network_receive_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\"}[5m])) by (pod)", "legendFormat": "{{pod}}" }]
+          "targets": [{ "expr": "sum(rate(container_network_receive_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\"}[5m])) by (pod)", "legendFormat": "{{pod}}" }],
+          "fieldConfig": { "defaults": { "unit": "Bps" } }
         },
         {
-          "id": 4, "type": "timeseries", "title": "Network Transmit (Bytes/s)",
+          "id": 4, "type": "timeseries", "title": "Network Transmit",
           "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
-          "targets": [{ "expr": "sum(rate(container_network_transmit_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\"}[5m])) by (pod)", "legendFormat": "{{pod}}" }]
+          "targets": [{ "expr": "sum(rate(container_network_transmit_bytes_total{namespace=~\"$namespace\", pod=~\"$pod\"}[5m])) by (pod)", "legendFormat": "{{pod}}" }],
+          "fieldConfig": { "defaults": { "unit": "Bps" } }
         }
       ]
     }

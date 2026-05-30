@@ -3,8 +3,8 @@ DeployHub — Python Stress Test
 Uses only stdlib (threading, http.client, urllib) — no pip installs needed.
 
 Targets:
-  - Deployed app  → http://54.235.38.60:3100
-  - Backend API   → http://54.235.38.60:3081
+  - Deployed app  → https://me.jeneeldumasia.codes
+  - Backend API   → https://api.jeneeldumasia.codes
 
 NOTE ON LATENCY:
   Running from outside AWS (e.g. India → us-east-1) adds ~180-200ms base RTT
@@ -42,10 +42,10 @@ from typing import List
 
 # ── Targets ──────────────────────────────────────────────────────────────────
 TARGETS = [
-    {"name": "app_home",     "host": "54.235.38.60", "port": 3100, "path": "/"},
-    {"name": "api_health",   "host": "54.235.38.60", "port": 3081, "path": "/health"},
-    {"name": "api_projects", "host": "54.235.38.60", "port": 3081, "path": "/api/projects"},
-    {"name": "api_system",   "host": "54.235.38.60", "port": 3081, "path": "/api/system"},
+    {"name": "app_home",     "host": "me.jeneeldumasia.codes", "port": 443, "path": "/", "https": True},
+    {"name": "api_health",   "host": "api.jeneeldumasia.codes", "port": 443, "path": "/health", "https": True},
+    {"name": "api_projects", "host": "api.jeneeldumasia.codes", "port": 443, "path": "/api/projects", "https": True},
+    {"name": "api_system",   "host": "api.jeneeldumasia.codes", "port": 443, "path": "/api/system", "https": True},
 ]
 
 # ── Stages (duration_seconds, target_workers) ─────────────────────────────────
@@ -81,7 +81,11 @@ def worker():
         t0 = time.perf_counter()
         status = 0
         try:
-            conn = http.client.HTTPConnection(t["host"], t["port"], timeout=TIMEOUT)
+            if t.get("https"):
+                conn = http.client.HTTPSConnection(t["host"], t["port"], timeout=TIMEOUT)
+            else:
+                conn = http.client.HTTPConnection(t["host"], t["port"], timeout=TIMEOUT)
+                
             conn.request("GET", t["path"], headers={"Connection": "close"})
             resp = conn.getresponse()
             resp.read()

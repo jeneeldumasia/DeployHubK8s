@@ -550,10 +550,12 @@ class DeploymentWorker:
             ]
             if action == "redeploy_magic":
                 dockerfile_lines.append(
-                    'RUN find /app -depth | while read -r f; do '
-                    'lower=$(echo "$f" | tr \'[:upper:]\' \'[:lower:]\'); '
-                    'if [ "$f" != "$lower" ] && [ ! -e "$lower" ]; then '
-                    'ln -s "$f" "$lower"; '
+                    'RUN find /app | while read -r f; do '
+                    'dir=$(dirname "$f"); '
+                    'base=$(basename "$f"); '
+                    'lower=$(echo "$base" | tr \'[:upper:]\' \'[:lower:]\'); '
+                    'if [ "$base" != "$lower" ] && [ ! -e "$dir/$lower" ]; then '
+                    'ln -s "$base" "$dir/$lower"; '
                     'fi; '
                     'done'
                 )

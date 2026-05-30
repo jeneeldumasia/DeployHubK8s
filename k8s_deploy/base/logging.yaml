@@ -53,6 +53,7 @@ data:
       working_directory: /loki/compactor
       retention_enabled: true
       retention_delete_delay: 2h
+      delete_request_store: filesystem
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -80,6 +81,8 @@ spec:
     metadata:
       labels:
         app: loki
+      annotations:
+        reloadedAt: "2026-05-30T11:46:00"
     spec:
       securityContext:
         fsGroup: 10001

@@ -308,6 +308,15 @@ async def get_runtime_logs(project: dict) -> list[str]:
 async def healthcheck() -> HealthResponse:
     return HealthResponse(status="ok")
 
+import hashlib
+@app.get("/api/stress")
+def cpu_stress():
+    """Artificially burn CPU to trigger the Horizontal Pod Autoscaler."""
+    data = b"deployhub-stress-test"
+    for _ in range(1000000):
+        data = hashlib.sha256(data).digest()
+    return {"status": "stressed", "result": data.hex()}
+
 
 @app.get("/ready", response_model=HealthResponse)
 async def readiness() -> HealthResponse:

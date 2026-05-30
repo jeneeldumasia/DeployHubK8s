@@ -46,6 +46,7 @@ TARGETS = [
     {"name": "api_health",   "host": "api.jeneeldumasia.codes", "port": 443, "path": "/health", "https": True},
     {"name": "api_projects", "host": "api.jeneeldumasia.codes", "port": 443, "path": "/api/projects", "https": True},
     {"name": "api_system",   "host": "api.jeneeldumasia.codes", "port": 443, "path": "/api/system", "https": True},
+    {"name": "api_stress",   "host": "api.jeneeldumasia.codes", "port": 443, "path": "/api/stress", "https": True},
 ]
 
 # ── Stages (duration_seconds, target_workers) ─────────────────────────────────

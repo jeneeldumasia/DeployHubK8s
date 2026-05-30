@@ -147,7 +147,7 @@ class DeploymentWorker:
 
             # 3. Build & Deploy
             dockerfile_path = await self._resolve_dockerfile(
-                project_id, build_context, project_type, metadata, project, record_log
+                project_id, build_context, project_type, metadata, project, record_log, action
             )
             await update_project(project_id, {"dockerfile_path": str(dockerfile_path)})
             if dockerfile_path.name == "Dockerfile":
@@ -485,7 +485,7 @@ class DeploymentWorker:
         sanitized = "".join(c if c.isalnum() or c == "-" else "-" for c in slug)
         return sanitized.strip("-")
 
-    async def _resolve_dockerfile(self, project_id: str, repo_path: Path, project_type: str, metadata: dict, project: dict, record_log) -> Path:
+    async def _resolve_dockerfile(self, project_id: str, repo_path: Path, project_type: str, metadata: dict, project: dict, record_log, action: str = "deploy") -> Path:
         existing_dockerfile = repo_path / "Dockerfile"
         if existing_dockerfile.exists():
             return existing_dockerfile
@@ -493,11 +493,11 @@ class DeploymentWorker:
         generated_dir = self.generated_dockerfile_root / project_id
         generated_dir.mkdir(parents=True, exist_ok=True)
         dockerfile_path = generated_dir / "Dockerfile.generated"
-        dockerfile_content = await self._generated_dockerfile_contents(project_type, metadata, repo_path, project, record_log)
+        dockerfile_content = await self._generated_dockerfile_contents(project_type, metadata, repo_path, project, record_log, action)
         dockerfile_path.write_text(dockerfile_content, encoding="utf-8")
         return dockerfile_path
 
-    async def _generated_dockerfile_contents(self, project_type: str, metadata: dict, repo_path: Path, project: dict, record_log) -> str:
+    async def _generated_dockerfile_contents(self, project_type: str, metadata: dict, repo_path: Path, project: dict, record_log, action: str = "deploy") -> str:
         if project_type == "node":
             scripts = metadata.get("node_scripts", {})
 
@@ -547,8 +547,17 @@ class DeploymentWorker:
                 "FROM node:20-alpine",
                 "WORKDIR /app",
                 "COPY . .",
-                f"RUN {install_command}",
             ]
+            if action == "redeploy_magic":
+                dockerfile_lines.append(
+                    'RUN find /app -depth | while read -r f; do '
+                    'lower=$(echo "$f" | tr \'[:upper:]\' \'[:lower:]\'); '
+                    'if [ "$f" != "$lower" ] && [ ! -e "$lower" ]; then '
+                    'ln -s "$f" "$lower"; '
+                    'fi; '
+                    'done'
+                )
+            dockerfile_lines.append(f"RUN {install_command}")
             if build_command:
                 dockerfile_lines.append(f"RUN {build_command}")
 

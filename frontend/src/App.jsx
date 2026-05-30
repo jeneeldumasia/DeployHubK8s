@@ -235,6 +235,7 @@ export default function App() {
         const endpoint = {
           deploy:   `${apiBase}/deploy/${projectId}`,
           redeploy: `${apiBase}/redeploy/${projectId}`,
+          redeploy_magic: `${apiBase}/redeploy/${projectId}?magic=true`,
           rollback: `${apiBase}/projects/${projectId}/rollback`,
           stop:     `${apiBase}/stop/${projectId}`,
         }[action];
@@ -246,7 +247,7 @@ export default function App() {
         setLogs({ build_logs: [], runtime_logs: [] });
       } else {
         setSelectedProjectId(projectId);
-        if (action === "deploy" || action === "redeploy") {
+        if (action === "deploy" || action === "redeploy" || action === "redeploy_magic") {
           setPage("logs");
         }
       }

@@ -461,8 +461,9 @@ async def deploy_project_endpoint(request: Request, project_id: str) -> ProjectA
 
 @app.post("/api/redeploy/{project_id}", response_model=ProjectActionResponse)
 @limiter.limit("10/minute")
-async def redeploy_project_endpoint(request: Request, project_id: str) -> ProjectActionResponse:
-    return await queue_deployment(project_id, action="redeploy")
+async def redeploy_project_endpoint(request: Request, project_id: str, magic: bool = False) -> ProjectActionResponse:
+    action = "redeploy_magic" if magic else "redeploy"
+    return await queue_deployment(project_id, action=action)
 
 
 @app.post("/api/projects/{project_id}/rollback", response_model=ProjectActionResponse)

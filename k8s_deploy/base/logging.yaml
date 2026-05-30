@@ -193,6 +193,15 @@ data:
           - source_labels: [__meta_kubernetes_pod_annotation_promtail_ignore]
             action: drop
             regex: "true"
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_namespace
+              - __meta_kubernetes_pod_name
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+            separator: /
+            replacement: /var/log/pods/$1_$2_$3/$4/*.log
 
       # Scrape user app pod logs in the deployhub-apps namespace
       - job_name: kubernetes-pods-deployhub-apps
@@ -215,6 +224,15 @@ data:
           - source_labels: [__meta_kubernetes_pod_annotation_promtail_ignore]
             action: drop
             regex: "true"
+          - action: replace
+            source_labels:
+              - __meta_kubernetes_namespace
+              - __meta_kubernetes_pod_name
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            target_label: __path__
+            separator: /
+            replacement: /var/log/pods/$1_$2_$3/$4/*.log
 ---
 apiVersion: v1
 kind: ServiceAccount

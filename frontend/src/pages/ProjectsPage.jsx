@@ -96,6 +96,15 @@ export default function ProjectsPage({
                 <button
                   type="button"
                   className="secondary-button"
+                  disabled={Boolean(actionInFlight)}
+                  onClick={() => onProjectAction("redeploy_magic", p.id)}
+                  title="Fixes case-sensitivity build errors by creating lowercase symlinks"
+                >
+                  Magic Redeploy
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
                   onClick={() => onGoToLogs(p.id)}
                 >
                   Logs

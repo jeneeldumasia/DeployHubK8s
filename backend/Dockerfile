@@ -13,8 +13,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
-COPY --from=moby/buildkit:master /usr/bin/buildctl /usr/local/bin/buildctl
+COPY --from=moby/buildkit:v0.30.0 /usr/bin/buildctl /usr/local/bin/buildctl
 
+RUN python -m pip install --no-cache-dir --upgrade pip
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 

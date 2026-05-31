@@ -19,58 +19,57 @@ class RepoAnalyzer:
 
     def analyze(self) -> List[DetectedService]:
         services = []
-        
-        # We perform a recursive scan, but skip common heavy and hidden/cache directories
         skip_dirs = {'node_modules', 'venv', '.venv', '__pycache__', 'dist', 'build'}
         
-        base_path = str(self.repo_path.resolve())
-        for root, dirs, files in os.walk(base_path):
-            # Modify dirs in-place to skip unwanted ones and any hidden directories (starting with '.')
-            dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith('.')]
-            
-            rel_path = os.path.relpath(root, base_path).replace("\\", "/")
-            if rel_path == '.':
-                rel_path = ""
+        base_path = self.repo_path.resolve()
+        if not base_path.exists() or not base_path.is_dir():
+            return services
 
-            # 1. Check for Node.js
+        def walk_path(current_path: Path):
+            if current_path != base_path:
+                if current_path.name in skip_dirs or current_path.name.startswith('.'):
+                    return
+
+            rel_path = ""
+            if current_path != base_path:
+                rel_path = current_path.relative_to(base_path).as_posix()
+
+            try:
+                files = {p.name for p in current_path.iterdir() if p.is_file()}
+            except Exception:
+                return
+
             if 'package.json' in files:
-                services.append(self._analyze_node(root, rel_path))
-            
-            # 2. Check for Python
+                services.append(self._analyze_node(str(current_path), rel_path))
             elif any(f in files for f in ['requirements.txt', 'pyproject.toml', 'manage.py']):
-                services.append(self._analyze_python(root, rel_path))
-
-            # 3. Check for PHP
+                services.append(self._analyze_python(str(current_path), rel_path))
             elif 'composer.json' in files or 'index.php' in files:
-                services.append(DetectedService(name=os.path.basename(root) or self._repo_name, path=rel_path, type="php"))
-
-            # 4. Check for Go
+                services.append(DetectedService(name=current_path.name or self._repo_name, path=rel_path, type="php"))
             elif 'go.mod' in files:
-                services.append(DetectedService(name=os.path.basename(root) or self._repo_name, path=rel_path, type="go"))
-
-            # 5. Check for Rust
+                services.append(DetectedService(name=current_path.name or self._repo_name, path=rel_path, type="go"))
             elif 'Cargo.toml' in files:
-                services.append(DetectedService(name=os.path.basename(root) or self._repo_name, path=rel_path, type="rust"))
-
-            # 6. Check for Java
+                services.append(DetectedService(name=current_path.name or self._repo_name, path=rel_path, type="rust"))
             elif 'pom.xml' in files or 'build.gradle' in files:
-                services.append(DetectedService(name=os.path.basename(root) or self._repo_name, path=rel_path, type="java"))
-
-            # 7. Check for Ruby
+                services.append(DetectedService(name=current_path.name or self._repo_name, path=rel_path, type="java"))
             elif 'Gemfile' in files:
-                services.append(DetectedService(name=os.path.basename(root) or self._repo_name, path=rel_path, type="ruby"))
-
-            # 8. Check for Static (HTML) 
-            # Restrict to root or common web build directories to avoid legacy PHP dummy index.html files
+                services.append(DetectedService(name=current_path.name or self._repo_name, path=rel_path, type="ruby"))
             elif 'index.html' in files and not any(s.path == rel_path for s in services):
-                basename = os.path.basename(root).lower()
+                basename = current_path.name.lower()
                 if rel_path == "" or basename in {'public', 'dist', 'build', 'www', 'html', 'client', 'web'}:
                     services.append(DetectedService(
-                        name=os.path.basename(root) or self._repo_name,
+                        name=current_path.name or self._repo_name,
                         path=rel_path,
                         type="static"
                     ))
 
+            try:
+                for d in current_path.iterdir():
+                    if d.is_dir():
+                        walk_path(d)
+            except Exception:
+                pass
+
+        walk_path(base_path)
         return services
 
     def _analyze_node(self, full_path: str, rel_path: str) -> DetectedService:

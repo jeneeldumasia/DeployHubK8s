@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Response
 
 from config import settings
 from database import get_database, count_projects, count_projects_by_status, get_deployment_stats
-from dependencies import worker, _cache
+from dependencies import _cache
 from models import HealthResponse, SystemResponse
 from observability import deployhub_active_containers, deployhub_projects_total, deployhub_pod_restarts_total, metrics_response
 from utils.docker import check_docker_available, count_running_deployhub_containers
@@ -49,19 +49,20 @@ async def get_system_endpoint() -> SystemResponse:
         queued_count = await count_projects_by_status("queued")
         deployhub_active_containers.set(running)
         deployhub_projects_total.set(project_count)
+        active_count = await count_projects_by_status("building")
         return {
             "backend_version": settings.backend_version,
             "docker_available": env_ok,
             "mongodb_available": mongodb_available,
             "project_count": project_count,
             "running_container_count": running,
-            "active_deployments": worker.active_count(),
+            "active_deployments": active_count,
             "queued_deployments": queued_count,
-            "queue_depth": worker.queued_count() + worker.active_count(),
+            "queue_depth": queued_count + active_count,
             "max_concurrent_builds": settings.max_concurrent_builds,
         }
     data = await _cache.get_or_set("system", _fetch)
-    return SystemResponse(**{**data, "active_deployments": worker.active_count()})
+    return SystemResponse(**data)
 
 @router.get("/metrics")
 async def metrics_endpoint() -> Response:

@@ -86,6 +86,15 @@ data:
               summary: "High deployment failure rate"
               description: "More than 0.1 failures/sec over the last 5 minutes."
 
+          - alert: HighMemoryUsage
+            expr: container_memory_usage_bytes{namespace="deployhub"} > 1.5 * 1024 * 1024 * 1024
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High memory usage detected"
+              description: "Container {{ $labels.container }} in pod {{ $labels.pod }} is using over 1.5GB of memory."
+
           - alert: HealthCheckFailures
             expr: increase(deployhub_health_check_failures_total[10m]) > 2
             for: 1m

@@ -15,4 +15,3 @@ resources:
   - monitoring.yaml
   - logging.yaml
   - jaeger.yaml
-  - alerts.yaml

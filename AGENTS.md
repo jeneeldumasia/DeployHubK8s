@@ -93,3 +93,9 @@ git push origin main
 | `bf84e62` | **ALB Controller IMDSv2 Crash Fix**: Dynamically injected `vpcId` and `region` directly into the AWS Load Balancer Controller Helm chart to bypass strict AL2023 IMDSv2 hop limit=1 constraints, which previously caused infinite CrashLoopBackOffs on EKS EC2 nodes. |
 | `3c68267` | **ALB Ghost Ingress Cleanup**: Implemented an aggressive `kubectl delete ingress` pre-apply step in CI to purge orphaned Ingress objects that were previously removed from Kustomize but left lingering in the cluster, preventing them from hijacking the ALB. |
 | `25733e6` | **Wildcard SSL & HTTPS Enforcement**: Integrated AWS ACM to dynamically provision wildcard certificates (`*.jeneeldumasia.codes`) for Cloudflare "Full (Strict)" mode, added HTTP-to-HTTPS redirect listeners, and implemented the Context Ring UI with closed-state hiding. |
+
+---
+
+## 6. AI Agent Guidelines
+
+- **Commit Messages**: Always provide a conventional commit message to the user after every fix, feature, or refactor.

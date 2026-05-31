@@ -673,10 +673,17 @@ jobs:
           kubectl apply -f k8s_rendered/base/secrets.yaml
           kubectl delete ingress deployhub-ingress -n deployhub --ignore-not-found=true || true
           
-          echo "⏳ Bootstrapping Kyverno..."
+          echo "⏳ Bootstrapping Kyverno (with retries for ALB webhook race conditions)..."
           helm repo add kyverno https://kyverno.github.io/kyverno/
           helm repo update
-          helm upgrade --install kyverno kyverno/kyverno -n kyverno --create-namespace --wait
+          for i in $(seq 1 10); do
+            if helm upgrade --install kyverno kyverno/kyverno -n kyverno --create-namespace --wait; then
+              echo "✅ Kyverno installed successfully"
+              break
+            fi
+            echo "Attempt $i/10 — Kyverno install failed (likely webhook race condition), retrying in 15s..."
+            sleep 15
+          done
           
           echo "⏳ Applying EKS overlays (retrying if webhook is not ready)..."
           for i in $(seq 1 18); do

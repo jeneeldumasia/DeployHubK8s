@@ -65,6 +65,24 @@ jobs:
         id: tag
         run: echo "tag=sha-$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
 
+      - name: Set up Python 3.11 for Integration Tests
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies & Run Pytest
+        run: |
+          pip install --quiet ruff
+          pip install --quiet -r backend/requirements.txt
+          cd backend
+          pytest tests/ -v --tb=short
+        env:
+          MONGO_URI: mongodb://localhost:27017/test
+          PUBLIC_BASE_URL: http://localhost
+          DEPLOYMENT_MODE: k8s
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -653,6 +671,11 @@ jobs:
           kubectl apply -f k8s_rendered/base/namespace.yaml
           kubectl apply -f k8s_rendered/base/secrets.yaml
           kubectl delete ingress deployhub-ingress -n deployhub --ignore-not-found=true || true
+          
+          echo "⏳ Bootstrapping Kyverno..."
+          helm repo add kyverno https://kyverno.github.io/kyverno/
+          helm repo update
+          helm upgrade --install kyverno kyverno/kyverno -n kyverno --create-namespace --wait
           
           echo "⏳ Applying EKS overlays (retrying if webhook is not ready)..."
           for i in $(seq 1 18); do

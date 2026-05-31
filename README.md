@@ -18,18 +18,22 @@ Demo: [watch 3-min walkthrough](#) &nbsp;|&nbsp; Grafana: [screenshot](#)
 ```mermaid
 flowchart TD
     Dev["Developer\npastes GitHub URL"] --> UI["DeployHub UI\n(React + Nginx)"]
-    UI --> API["FastAPI Backend\n(async worker queue)"]
-    API --> Git["git clone / pull\n(repo cache on PVC)"]
+    UI --> API["FastAPI Control Plane\n(System & API)"]
+    API --> Redis["Redis Pub/Sub\n(Task Queue)"]
+    Redis --> Worker["Builder Worker\n(async builder.py)"]
+    Worker --> Git["git clone / pull\n(repo cache on PVC)"]
     Git --> Detect["Framework detector\nNode / Python / Static"]
     Detect --> BK["BuildKit daemon\n(in-cluster, rootless)"]
     BK --> ECR["Amazon ECR\n(private registry)"]
     ECR --> Pod["User Pod\n(k3s NodePort)"]
     Pod --> Ingress["Traefik Ingress\nslug.domain.com"]
 
-    API --> Mongo["MongoDB\n(Motor async)"]
+    Worker --> Mongo["MongoDB\n(deployment tracking)"]
+    API --> Mongo
     API --> Metrics["/metrics\nPrometheus scrape"]
     Metrics --> Prom["Prometheus\n15s interval"]
     Prom --> Grafana["Grafana\npre-built dashboard"]
+    Prom --> AlertM["Alertmanager\n(Discord/Slack Webhooks)"]
     Pod --> Promtail["Promtail DaemonSet\nlog shipping"]
     Promtail --> Loki["Loki\n7-day retention"]
     Loki --> Grafana
@@ -39,6 +43,23 @@ flowchart TD
     GHA -->|kubectl apply| Pod
     TF["Terraform\nS3 remote state"] -->|provisions| EC2["EC2 + k3s\nor EKS cluster"]
 ```
+
+---
+
+## Local Development (Docker Compose)
+
+You can run the entire DeployHub control plane locally for development:
+
+1. **Start the stack:**
+   ```bash
+   docker compose up --build
+   ```
+2. **Access the services:**
+   - **Frontend UI**: `http://localhost:3000`
+   - **Backend API**: `http://localhost:8000`
+   - **MongoDB**: `localhost:27017`
+   - **Redis**: `localhost:6379`
+3. **Architecture Note**: The `docker-compose.yml` spins up `backend` (FastAPI), `builder` (Worker), `frontend`, `mongo`, and `redis`. Since BuildKit is missing locally, deployments will fail at the build step, but you can test UI, API logic, database state, and webhook signatures.
 
 ---
 

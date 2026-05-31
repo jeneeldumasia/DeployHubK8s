@@ -2,6 +2,7 @@ import asyncio
 import shutil
 import os
 import aiohttp
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -39,6 +40,8 @@ from utils.k8s import (
     wait_for_deployment_running,
 )
 from config import settings
+from redis_client import redis_client
+from database import connect_to_mongo, close_mongo_connection
 
 
 def timestamped_log(message: str) -> str:
@@ -47,55 +50,46 @@ def timestamped_log(message: str) -> str:
 
 class DeploymentWorker:
     def __init__(self, public_base_url: str, generated_dockerfile_root: str, deployment_mode: str = "docker") -> None:
-        self.queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
-        self.enqueued_project_ids: set[str] = set()
-        self.active_project_ids: set[str] = set()
         self._build_semaphore = asyncio.Semaphore(settings.max_concurrent_builds)
         self.public_base_url = public_base_url.rstrip("/")
         self.generated_dockerfile_root = Path(generated_dockerfile_root)
-        self.task: asyncio.Task | None = None
-        # mode can be "docker" or "k8s"
         self.deployment_mode = deployment_mode
 
-    def start(self) -> None:
-        if self.task is None or self.task.done():
-            self.task = asyncio.create_task(self.run(), name="deployhub-worker")
-
-    async def stop(self) -> None:
-        if self.task is not None:
-            self.task.cancel()
-            try:
-                await self.task
-            except asyncio.CancelledError:
-                pass
-
-    def queued_count(self) -> int:
-        return len(self.enqueued_project_ids)
-
-    def active_count(self) -> int:
-        return len(self.active_project_ids)
-
-    async def enqueue(self, project_id: str, action: str = "deploy") -> bool:
-        if project_id in self.enqueued_project_ids or project_id in self.active_project_ids:
-            return False
-        self.enqueued_project_ids.add(project_id)
-        await self.queue.put((action, project_id))
-        return True
-
     async def run(self) -> None:
+        print("Builder started, waiting for jobs on 'deployhub_queue'...")
         while True:
-            action, project_id = await self.queue.get()
-            self.enqueued_project_ids.discard(project_id)
-            self.active_project_ids.add(project_id)
             try:
+                result = await redis_client.blpop("deployhub_queue", timeout=1)
+                if not result:
+                    continue
+                
+                _, payload_str = result
+                payload = json.loads(payload_str)
+                action = payload.get("action")
+                project_id = payload.get("project_id")
+
+                if not project_id or not action:
+                    continue
+                
+                print(f"Processing {action} for {project_id}...")
+
                 async with self._build_semaphore:
                     if action == "rollback":
                         await self._do_rollback(project_id)
+                    elif action == "stop":
+                        await self.stop_project(project_id)
+                    elif action == "delete":
+                        project = await get_project_by_id(project_id)
+                        if project:
+                            await self.delete_project_resources(project)
                     else:
                         await self.deploy(project_id, action=action)
-            finally:
-                self.active_project_ids.discard(project_id)
-                self.queue.task_done()
+                
+                print(f"Finished processing {action} for {project_id}.")
+                await redis_client.publish(f"logs:{project_id}", "status_update")
+            except Exception as e:
+                print(f"Error in builder loop: {e}")
+                await asyncio.sleep(5)
 
     async def deploy(self, project_id: str, action: str = "deploy") -> None:
         project = await get_project_by_id(project_id)
@@ -411,12 +405,11 @@ class DeploymentWorker:
             await remove_container(project.get("container_name"))
             await remove_container(self.container_name(str(project["_id"])))
 
-    async def stop_project(self, project_id: str) -> dict[str, str]:
+    async def stop_project(self, project_id: str) -> None:
         project = await get_project_by_id(project_id)
         if not project:
-            raise ValueError("Project not found")
-        if project_id in self.active_project_ids:
-            raise RuntimeError("Project is currently building and cannot be stopped")
+            print(f"Project {project_id} not found for stop")
+            return
 
         await self.stop_project_resources(project)
         await append_build_log(project_id, timestamped_log("Project stopped and resources removed"))
@@ -427,7 +420,6 @@ class DeploymentWorker:
                 "container_id": None,
             },
         )
-        return {"message": "Project stopped", "status": "stopped"}
 
     async def delete_project_resources(self, project: dict) -> None:
         await self.stop_project_resources(project)
@@ -855,3 +847,20 @@ class DeploymentWorker:
 
         deployhub_health_check_failures_total.labels(reason="http_probe_failed").inc()
         raise RuntimeError(f"App did not respond after {http_retries} attempts. Last error: {last_error}")
+
+async def main():
+    await connect_to_mongo()
+    worker = DeploymentWorker(
+        public_base_url=settings.public_base_url,
+        generated_dockerfile_root=settings.generated_dockerfile_root,
+        deployment_mode=settings.deployment_mode,
+    )
+    try:
+        await worker.run()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await close_mongo_connection()
+
+if __name__ == "__main__":
+    asyncio.run(main())

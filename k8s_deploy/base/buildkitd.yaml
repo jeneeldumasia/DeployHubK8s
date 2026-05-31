@@ -17,16 +17,19 @@ spec:
     spec:
       containers:
         - name: buildkitd
-          image: moby/buildkit:v0.19.0
+          image: moby/buildkit:v0.19.0-rootless
           args:
             - --addr
             - tcp://0.0.0.0:1234
             - --addr
-            - unix:///run/buildkit/buildkitd.sock
+            - unix:///run/user/1000/buildkit/buildkitd.sock
           ports:
             - containerPort: 1234
           securityContext:
-            privileged: true   # Required for rootful BuildKit; use rootless variant for tighter security
+            seccompProfile:
+              type: Unconfined
+            runAsUser: 1000
+            runAsGroup: 1000
           readinessProbe:
             exec:
               command: ["buildctl", "debug", "workers"]

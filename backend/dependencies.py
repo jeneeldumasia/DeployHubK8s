@@ -5,7 +5,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from config import settings
-from worker import DeploymentWorker
+from redis_client import redis_client
 
 # Rate limiter
 limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
@@ -55,9 +55,3 @@ class _TTLCache:
 
 _cache = _TTLCache(ttl=5.0)
 
-# Worker instance
-worker = DeploymentWorker(
-    public_base_url=settings.public_base_url,
-    generated_dockerfile_root=settings.generated_dockerfile_root,
-    deployment_mode=settings.deployment_mode,
-)

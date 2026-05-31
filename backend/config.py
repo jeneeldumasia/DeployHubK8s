@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     mongo_root_user: str = "root"
     mongo_root_password: str = ""
     mongo_db_name: str = "deployhub"
+    redis_url: str = "redis://localhost:6379/0"
     data_root: str = "/data"
     repo_root: str = "/data/repos"
     generated_dockerfile_root: str = "/data/generated-dockerfiles"

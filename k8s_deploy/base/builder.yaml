@@ -1,71 +1,67 @@
-
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: backend-sa
+  name: builder-sa
   namespace: deployhub
   annotations:
-    # EKS: IRSA — pod assumes this IAM role for ECR push without static credentials
-    # k3s: annotation is ignored, ECR access uses node IAM role or ecr-private-key secret
     eks.amazonaws.com/role-arn: "${BACKEND_SA_ROLE_ARN}"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: pod-manager
+  name: builder-pod-manager
   namespace: deployhub
 rules:
   - apiGroups: [""]
     resources: ["pods", "services", "pods/log", "pods/status"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: backend-pod-manager
+  name: builder-rolebinding
   namespace: deployhub
 subjects:
   - kind: ServiceAccount
-    name: backend-sa
+    name: builder-sa
     namespace: deployhub
 roleRef:
   kind: Role
-  name: pod-manager
+  name: builder-pod-manager
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backend
+  name: builder
   namespace: deployhub
 spec:
-  replicas: 2
-  strategy:
-    type: RollingUpdate
+  replicas: 1
   selector:
     matchLabels:
-      app: deployhub-backend
+      app: deployhub-builder
   template:
     metadata:
       labels:
-        app: deployhub-backend
+        app: deployhub-builder
     spec:
-      serviceAccountName: backend-sa
+      serviceAccountName: builder-sa
       imagePullSecrets:
         - name: ecr-private-key
       initContainers:
-        - name: wait-for-mongo
+        - name: wait-for-mongo-redis
           image: busybox:1.36
-          command: ['sh', '-c', 'until nc -z mongodb 27017; do echo "Waiting for MongoDB..."; sleep 5; done']
+          command: ['sh', '-c', 'until nc -z mongodb 27017 && nc -z redis 6379; do echo "Waiting for MongoDB and Redis..."; sleep 5; done']
       containers:
-        - name: backend
+        - name: builder
           image: deployhub-backend:latest
+          command: ["python", "builder.py"]
           imagePullPolicy: Always
           securityContext:
             readOnlyRootFilesystem: true
@@ -73,8 +69,6 @@ spec:
             capabilities:
               drop:
                 - ALL
-          ports:
-            - containerPort: 8000
           env:
             - name: DEPLOYMENT_MODE
               valueFrom:
@@ -91,6 +85,8 @@ spec:
                 configMapKeyRef:
                   name: backend-config
                   key: mongo-db-name
+            - name: REDIS_URL
+              value: "redis://redis:6379/0"
             - name: BUILDKIT_HOST
               valueFrom:
                 configMapKeyRef:
@@ -116,12 +112,6 @@ spec:
                 configMapKeyRef:
                   name: backend-config
                   key: aws-region
-            - name: GITHUB_WEBHOOK_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: backend-secrets
-                  key: github-webhook-secret
-                  optional: true
           resources:
             requests:
               cpu: "50m"
@@ -129,22 +119,6 @@ spec:
             limits:
               cpu: "2000m"
               memory: "2Gi"
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8000
-            initialDelaySeconds: 15
-            periodSeconds: 20
-            failureThreshold: 3
-            timeoutSeconds: 5
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: 8000
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            failureThreshold: 3
-            timeoutSeconds: 5
           volumeMounts:
             - name: backend-data
               mountPath: /data
@@ -155,34 +129,3 @@ spec:
           emptyDir: {}
         - name: tmp-volume
           emptyDir: {}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: backend
-  namespace: deployhub
-  annotations:
-    # On k3s: NodePort is used directly
-    # On EKS: ALB controller uses ClusterIP + pod IPs via target-type: ip
-spec:
-  selector:
-    app: deployhub-backend
-  ports:
-    - port: 8000
-      targetPort: 8000
-      nodePort: 30081
-  type: NodePort   # works on both k3s and EKS (ALB controller ignores type)
-
----
-# Pod Disruption Budget — ensures at least 1 backend pod stays up during
-# node drains and cluster maintenance.
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: backend-pdb
-  namespace: deployhub
-spec:
-  maxUnavailable: 1
-  selector:
-    matchLabels:
-      app: deployhub-backend

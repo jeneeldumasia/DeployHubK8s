@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import DashboardPage  from "./pages/DashboardPage";
 import ProjectsPage   from "./pages/ProjectsPage";
 import LogsPage       from "./pages/LogsPage";
@@ -29,12 +30,10 @@ async function parseResponse(response) {
 
 export default function App() {
   /* ── State ─────────────────────────────────────────────────── */
+  const queryClient = useQueryClient();
   const [page, setPage]                       = useState("dashboard");
   const [repoUrl, setRepoUrl]                 = useState("");
-  const [projects, setProjects]               = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [selectedProject, setSelectedProject] = useState(null);
-  const [logs, setLogs]                       = useState({ build_logs: [], runtime_logs: [] });
   const [error, setError]                     = useState("");
   const [actionInFlight, setActionInFlight]   = useState("");
   const [streamState, setStreamState]         = useState("idle");
@@ -78,45 +77,35 @@ export default function App() {
     };
   }, [projects]);
 
-  /* ── Data loaders ──────────────────────────────────────────── */
-  async function loadProjects() {
-    const data = await parseResponse(await fetch(`${apiBase}/projects`));
-    setProjects(data);
-    if (!selectedProjectId && data.length > 0) setSelectedProjectId(data[0].id);
-  }
+  /* ── React Query ───────────────────────────────────────────── */
+  const { data: projects = [] } = useQuery({
+    queryKey: ['projects'],
+    queryFn: async () => await parseResponse(await fetch(`${apiBase}/projects`)),
+    refetchInterval: 5000,
+  });
 
-  async function loadLogs(projectId) {
-    if (!projectId) { setLogs({ build_logs: [], runtime_logs: [] }); return; }
-    const data = await parseResponse(await fetch(`${apiBase}/logs/${projectId}`));
-    setLogs(data);
-  }
+  const { data: selectedProject = null } = useQuery({
+    queryKey: ['project', selectedProjectId],
+    queryFn: async () => await parseResponse(await fetch(`${apiBase}/projects/${selectedProjectId}`)),
+    enabled: !!selectedProjectId,
+    refetchInterval: 5000,
+  });
 
-  async function loadProjectDetail(projectId) {
-    if (!projectId) { setSelectedProject(null); return; }
-    const data = await parseResponse(await fetch(`${apiBase}/projects/${projectId}`));
-    setSelectedProject(data);
-  }
+  const { data: logs = { build_logs: [], runtime_logs: [] } } = useQuery({
+    queryKey: ['logs', selectedProjectId],
+    queryFn: async () => await parseResponse(await fetch(`${apiBase}/logs/${selectedProjectId}`)),
+    enabled: !!selectedProjectId,
+    refetchInterval: streamState === "live" ? false : 5000,
+  });
 
-  /* ── Effects ───────────────────────────────────────────────── */
-  useEffect(() => { loadProjects().catch((e) => setError(e.message)); }, []);
-
+  /* ── Auto-select first project ─────────────────────────────── */
   useEffect(() => {
-    loadProjectDetail(selectedProjectId).catch((e) => setError(e.message));
-    loadLogs(selectedProjectId).catch((e) => setError(e.message));
-  }, [selectedProjectId]);
+    if (!selectedProjectId && projects.length > 0) {
+      setSelectedProjectId(projects[0].id);
+    }
+  }, [projects, selectedProjectId]);
 
-  // Periodic polling for project list and details (UX improvement)
-  useEffect(() => {
-    const id = setInterval(() => {
-      loadProjects().catch(() => {});
-      if (selectedProjectId) {
-        loadProjectDetail(selectedProjectId).catch(() => {});
-      }
-    }, 5000);
-    return () => clearInterval(id);
-  }, [selectedProjectId]);
-
-  // SSE live log stream
+  /* ── SSE live log stream ───────────────────────────────────── */
   useEffect(() => {
     if (!selectedProjectId) return undefined;
     const stream = new EventSource(`${apiBase}/logs/${selectedProjectId}/stream`);
@@ -124,26 +113,16 @@ export default function App() {
     stream.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        setLogs({ build_logs: data.build_logs || [], runtime_logs: data.runtime_logs || [] });
+        queryClient.setQueryData(['logs', selectedProjectId], {
+          build_logs: data.build_logs || [],
+          runtime_logs: data.runtime_logs || []
+        });
         setStreamState("live");
       } catch { setError("Failed to parse live logs stream"); }
     };
     stream.onerror = () => { setStreamState("polling"); stream.close(); };
     return () => stream.close();
-  }, [selectedProjectId]);
-
-  // Polling fallback
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      if (streamState === "live") return;
-      loadProjects().catch(() => {});
-      if (selectedProjectId) {
-        loadProjectDetail(selectedProjectId).catch(() => {});
-        loadLogs(selectedProjectId).catch(() => {});
-      }
-    }, 5000);
-    return () => window.clearInterval(interval);
-  }, [selectedProjectId, streamState]);
+  }, [selectedProjectId, queryClient]);
 
   /* ── Handlers ──────────────────────────────────────────────── */
   async function handleCreateProject(event) {
@@ -206,11 +185,10 @@ export default function App() {
       
       if (newProject && newProject.id) {
         setSelectedProjectId(newProject.id);
-        // Auto-navigate to logs page on deploy
         setPage("logs");
       }
       
-      await loadProjects();
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -243,18 +221,17 @@ export default function App() {
       }
       if (action === "delete") {
         setSelectedProjectId("");
-        setSelectedProject(null);
-        setLogs({ build_logs: [], runtime_logs: [] });
+        queryClient.setQueryData(['logs', projectId], { build_logs: [], runtime_logs: [] });
       } else {
         setSelectedProjectId(projectId);
         if (action === "deploy" || action === "redeploy" || action === "redeploy_magic") {
           setPage("logs");
         }
       }
-      await loadProjects();
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
       if (action !== "delete") {
-        await loadProjectDetail(projectId);
-        await loadLogs(projectId);
+        await queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+        await queryClient.invalidateQueries({ queryKey: ['logs', projectId] });
       }
     } catch (err) {
       setError(err.message);
@@ -303,7 +280,7 @@ export default function App() {
             error={error}
             onProjectAction={handleProjectAction}
             onGoToLogs={(id) => { setSelectedProjectId(id); setPage("logs"); }}
-            onRefreshLogs={(id) => loadLogs(id).catch((e) => setError(e.message))}
+            onRefreshLogs={(id) => queryClient.invalidateQueries({ queryKey: ['logs', id] })}
           />
         )}
 
@@ -314,7 +291,7 @@ export default function App() {
             setSelectedProjectId={setSelectedProjectId}
             logs={logs}
             streamState={streamState}
-            onRefreshLogs={(id) => loadLogs(id).catch((e) => setError(e.message))}
+            onRefreshLogs={(id) => queryClient.invalidateQueries({ queryKey: ['logs', id] })}
           />
         )}
 

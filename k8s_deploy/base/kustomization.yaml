@@ -3,7 +3,9 @@ kind: Kustomization
 resources:
   - mongo.yaml
   - buildkitd.yaml
+  - redis.yaml
   - backend.yaml
+  - builder.yaml
   - frontend.yaml
   - hpa.yaml
   - networkpolicy.yaml
@@ -13,3 +15,4 @@ resources:
   - monitoring.yaml
   - logging.yaml
   - jaeger.yaml
+  - alerts.yaml

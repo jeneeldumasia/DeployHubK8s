@@ -10,6 +10,7 @@ boto3==1.37.5
 aiohttp==3.13.5
 slowapi==0.1.9
 PyYAML==6.0.2
+redis==5.0.4
 # Testing
 pytest==9.0.3
 pytest-asyncio==1.4.0

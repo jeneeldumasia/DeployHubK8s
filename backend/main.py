@@ -75,9 +75,7 @@ from utils.k8s import (
 )
 from utils.analyzer import RepoAnalyzer
 from utils.git import GitError, normalize_repo_url, clone_or_update_repo
-from worker import DeploymentWorker
-
-from dependencies import limiter, ws_manager, _cache, worker
+from dependencies import limiter, ws_manager, _cache, redis_client
 
 def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
     return JSONResponse(status_code=429, content={"error": "Too many requests, slow down."})
@@ -124,7 +122,6 @@ async def _reconcile_pod_states() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await connect_to_mongo()
-    worker.start()
 
     # ── Startup reconciliation ────────────────────────────────────────────────
     # Bare Pods (unlike Deployments) are not rescheduled after a node restart.
@@ -137,8 +134,7 @@ async def lifespan(_: FastAPI):
     loop = asyncio.get_running_loop()
 
     async def _handle_signal(sig: signal.Signals) -> None:
-        log_event("app_shutdown_signal", signal=sig.name, active_deployments=worker.active_count())
-        await worker.stop()
+        log_event("app_shutdown_signal", signal=sig.name)
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
@@ -149,7 +145,6 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
-        await worker.stop()
         await close_mongo_connection()
         log_event("app_shutdown_complete")
 
@@ -380,13 +375,18 @@ async def queue_deployment(project_id: str, action: str) -> ProjectActionRespons
         raise HTTPException(status_code=404, detail="Project not found")
     if project["status"] == "deleting":
         raise HTTPException(status_code=409, detail="Project is being deleted")
-    if not await worker.enqueue(project_id, action=action):
-        return ProjectActionResponse(message="Deployment already queued", project_id=project_id, status=project["status"])
+    
+    # Check if already queued
+    # Not strictly necessary to enforce uniqueness here, but we can set status to queued
     await update_project(project_id, {"status": "queued", "last_error": None})
+    await redis_client.rpush("deployhub_queue", json.dumps({"project_id": project_id, "action": action}))
+    
     deployhub_deployments_total.labels(action=action).inc()
     log_event("deployment_queued", project_id=project_id, action=action)
     # Notify WebSocket subscribers
     await ws_manager.broadcast(project_id, {"type": "status_update", "status": "queued"})
+    # Notify Redis Pub/Sub so clients listening to SSE immediately see the state change
+    await redis_client.publish(f"logs:{project_id}", "status_update")
     return ProjectActionResponse(message=f"{action.title()} queued", project_id=project_id, status="queued")
 
 
@@ -413,13 +413,10 @@ async def rollback_project(project_id: str) -> ProjectActionResponse:
         raise HTTPException(status_code=409, detail="No previous successful deploy found.")
     if project.get("status") == "building":
         raise HTTPException(status_code=409, detail="Build in progress — wait before rolling back.")
-    if not await worker.enqueue(project_id, action="rollback"):
-        return ProjectActionResponse(
-            message="Rollback already queued",
-            project_id=project_id,
-            status="queued",
-        )
+    
     await update_project(project_id, {"status": "queued"})
+    await redis_client.rpush("deployhub_queue", json.dumps({"project_id": project_id, "action": "rollback"}))
+    await redis_client.publish(f"logs:{project_id}", "status_update")
     log_event("rollback_queued", project_id=project_id)
     return ProjectActionResponse(message="Rollback queued", project_id=project_id, status="queued")
 
@@ -474,15 +471,17 @@ async def set_webhook_secret(project_id: str) -> dict:
 
 @app.post("/api/stop/{project_id}", response_model=ProjectActionResponse)
 async def stop_project_endpoint(project_id: str) -> ProjectActionResponse:
-    try:
-        result = await worker.stop_project(project_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    log_event("project_stopped", project_id=project_id)
-    await ws_manager.broadcast(project_id, {"type": "status_update", "status": "stopped"})
-    return ProjectActionResponse(message=result["message"], project_id=project_id, status=result["status"])
+    project = await get_project_by_id(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.get("status") == "building":
+        raise HTTPException(status_code=409, detail="Project is currently building and cannot be stopped")
+    
+    await redis_client.rpush("deployhub_queue", json.dumps({"project_id": project_id, "action": "stop"}))
+    log_event("project_stop_queued", project_id=project_id)
+    await ws_manager.broadcast(project_id, {"type": "status_update", "status": "stopping"})
+    await redis_client.publish(f"logs:{project_id}", "status_update")
+    return ProjectActionResponse(message="Stop queued", project_id=project_id, status="stopping")
 
 
 @app.delete("/api/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -490,14 +489,14 @@ async def delete_project_endpoint(project_id: str) -> Response:
     project = await get_project_by_id(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if project_id in worker.active_project_ids:
+    if project.get("status") == "building":
         raise HTTPException(status_code=409, detail="Project is currently building and cannot be deleted")
     await update_project(project_id, {"status": "deleting"})
-    await worker.delete_project_resources(project)
-    await delete_project_ecr_images(project_id)
-    await delete_project(project_id)
-    deployhub_projects_total.set(await count_projects())
-    log_event("project_deleted", project_id=project_id)
+    
+    # Enqueue deletion logic to the builder worker
+    await redis_client.rpush("deployhub_queue", json.dumps({"project_id": project_id, "action": "delete"}))
+    await redis_client.publish(f"logs:{project_id}", "status_update")
+    
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -524,44 +523,50 @@ async def stream_logs_endpoint(project_id: str) -> StreamingResponse:
         raise HTTPException(status_code=404, detail="Project not found")
 
     async def event_stream():
-        last_payload: str | None = None
-        consecutive_not_found = 0
-        while True:
+        pubsub = redis_client.pubsub()
+        await pubsub.subscribe(f"logs:{project_id}")
+        
+        # Send initial state
+        current = await get_project_by_id(project_id)
+        if current:
+            payload = {
+                "project_id": project_id,
+                "status": current.get("status"),
+                "last_error": current.get("last_error"),
+                "updated_at": current.get("updated_at").isoformat() if current.get("updated_at") else None,
+                "build_logs": current.get("build_logs", []),
+                "runtime_logs": await get_runtime_logs(current),
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+
+        # Wait for pubsub events
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+            
+            # Message received means something updated in the db
             current = await get_project_by_id(project_id)
             if not current:
-                consecutive_not_found += 1
-                if consecutive_not_found >= 3:
-                    # Project was deleted — close the stream
-                    yield "data: {\"event\": \"deleted\"}\n\n"
-                    return
-                payload = {"project_id": project_id, "status": "failed", "build_logs": [], "runtime_logs": []}
-            else:
-                consecutive_not_found = 0
-                payload = {
-                    "project_id": project_id,
-                    "status": current.get("status"),
-                    "last_error": current.get("last_error"),
-                    "updated_at": current.get("updated_at").isoformat() if current.get("updated_at") else None,
-                    "build_logs": current.get("build_logs", []),
-                    "runtime_logs": await get_runtime_logs(current),
-                }
-            serialized = json.dumps(payload)
-            if serialized != last_payload:
-                last_payload = serialized
-                yield f"data: {serialized}\n\n"
-
-            proj_status = payload.get("status")
-            if proj_status in {"failed", "stopped", "deleting"}:
-                # Terminal state — close the stream so the client knows it's done
+                yield "data: {\"event\": \"deleted\"}\n\n"
                 return
-            elif proj_status == "running":
-                await asyncio.sleep(3)
-            else:
-                # building / queued — poll faster
-                await asyncio.sleep(1)
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
+            payload = {
+                "project_id": project_id,
+                "status": current.get("status"),
+                "last_error": current.get("last_error"),
+                "updated_at": current.get("updated_at").isoformat() if current.get("updated_at") else None,
+                "build_logs": current.get("build_logs", []),
+                "runtime_logs": await get_runtime_logs(current),
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+            
+            proj_status = payload.get("status")
+            if proj_status in {"failed", "stopped", "deleting", "running"}:
+                # If running, we probably still want to wait a bit in case runtime logs stream in... 
+                # But actually, SSE is mostly useful for the build phase. For running, clients might re-poll or the worker handles it.
+                pass
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
 
 
 # ── WebSocket real-time updates (#17) ─────────────────────────────────────────

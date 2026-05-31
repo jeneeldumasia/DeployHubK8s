@@ -1,0 +1,2 @@
+# Ignore unpatched containerd vulnerability bundled in buildctl (moby/buildkit:v0.30.0)
+CVE-2026-46680

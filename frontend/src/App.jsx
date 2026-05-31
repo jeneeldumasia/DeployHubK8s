@@ -56,27 +56,6 @@ export default function App() {
     localStorage.setItem("theme", theme);
   }, [theme]);
 
-  /* ── Derived ───────────────────────────────────────────────── */
-  const selectedProjectSummary = useMemo(
-    () => projects.find((p) => p.id === selectedProjectId) || null,
-    [projects, selectedProjectId]
-  );
-
-  const systemStatus = useMemo(() => {
-    if (projects.some(p => p.status === "failed")) return "failed";
-    if (projects.some(p => p.status === "building")) return "building";
-    return "running";
-  }, [projects]);
-
-  const activePulses = useMemo(() => {
-    const now = Date.now();
-    return {
-      logs: projects.some(p => p.status === "building"),
-      monitoring: projects.some(p => p.status === "failed"),
-      projects: projects.some(p => p.status === "running" && (now - new Date(p.updated_at).getTime() < 60000)),
-    };
-  }, [projects]);
-
   /* ── React Query ───────────────────────────────────────────── */
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
@@ -97,6 +76,27 @@ export default function App() {
     enabled: !!selectedProjectId,
     refetchInterval: streamState === "live" ? false : 5000,
   });
+
+  /* ── Derived ───────────────────────────────────────────────── */
+  const selectedProjectSummary = useMemo(
+    () => projects.find((p) => p.id === selectedProjectId) || null,
+    [projects, selectedProjectId]
+  );
+
+  const systemStatus = useMemo(() => {
+    if (projects.some(p => p.status === "failed")) return "failed";
+    if (projects.some(p => p.status === "building")) return "building";
+    return "running";
+  }, [projects]);
+
+  const activePulses = useMemo(() => {
+    const now = Date.now();
+    return {
+      logs: projects.some(p => p.status === "building"),
+      monitoring: projects.some(p => p.status === "failed"),
+      projects: projects.some(p => p.status === "running" && (now - new Date(p.updated_at).getTime() < 60000)),
+    };
+  }, [projects]);
 
   /* ── Auto-select first project ─────────────────────────────── */
   useEffect(() => {

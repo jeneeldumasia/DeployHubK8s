@@ -55,9 +55,6 @@ _mock_docker.count_running_deployhub_containers = AsyncMock(return_value=0)
 _mock_docker.get_container_logs = AsyncMock(return_value=[])
 sys.modules["utils.docker"] = _mock_docker
 
-# Patch analyzer
-_mock_analyzer_mod = MagicMock()
-sys.modules["utils.analyzer"] = _mock_analyzer_mod
 
 # Patch git utils
 _mock_git = MagicMock()

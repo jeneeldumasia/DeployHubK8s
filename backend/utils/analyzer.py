@@ -22,33 +22,24 @@ class RepoAnalyzer:
         skip_dirs = {'node_modules', 'venv', '.venv', '__pycache__', 'dist', 'build'}
         
         base_path = self.repo_path.resolve()
-        print(f"DEBUG: base_path = {base_path}")
         if not base_path.exists() or not base_path.is_dir():
-            print(f"DEBUG: base_path does not exist or is not dir")
             return services
 
         def walk_path(current_path: Path):
-            print(f"DEBUG: walk_path({current_path})")
             if current_path != base_path:
                 if current_path.name in skip_dirs or current_path.name.startswith('.'):
-                    print(f"DEBUG: skipping {current_path.name}")
                     return
 
             rel_path = ""
             if current_path != base_path:
                 rel_path = current_path.relative_to(base_path).as_posix()
-            
-            print(f"DEBUG: rel_path = '{rel_path}'")
 
             try:
                 files = {p.name for p in current_path.iterdir() if p.is_file()}
-                print(f"DEBUG: files = {files}")
-            except Exception as e:
-                print(f"DEBUG: exception iterdir: {e}")
+            except Exception:
                 return
 
             if 'package.json' in files:
-                print(f"DEBUG: found package.json in {current_path}")
                 services.append(self._analyze_node(str(current_path), rel_path))
             elif any(f in files for f in ['requirements.txt', 'pyproject.toml', 'manage.py']):
                 services.append(self._analyze_python(str(current_path), rel_path))
@@ -75,11 +66,10 @@ class RepoAnalyzer:
                 for d in current_path.iterdir():
                     if d.is_dir():
                         walk_path(d)
-            except Exception as e:
-                print(f"DEBUG: exception in dir iter: {e}")
+            except Exception:
+                pass
 
         walk_path(base_path)
-        print(f"DEBUG: final services = {services}")
         return services
 
     def _analyze_node(self, full_path: str, rel_path: str) -> DetectedService:

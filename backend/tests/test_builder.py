@@ -77,11 +77,7 @@ def test_repo_analyzer_ignores_hidden_dirs(tmp_path):
     # Should find the root app (sre-kpi-generator) and the client static page,
     # but absolutely MUST NOT find the vite dependency cache in .vite/
     service_paths = {s.path for s in services}
-    if "" not in service_paths:
-        debug_info = f"tmp_path={tmp_path}, exists={tmp_path.exists()}\n"
-        debug_info += f"files in tmp_path={list(tmp_path.iterdir()) if tmp_path.exists() else 'none'}\n"
-        debug_info += f"services={services}"
-        raise Exception(f"DEBUG INFO:\n{debug_info}")
+    assert "" in service_paths  # Root Node app
         
     assert "src/client" in service_paths  # Static client app
     assert "frontend/.vite/deps" not in service_paths  # Hidden cache directory

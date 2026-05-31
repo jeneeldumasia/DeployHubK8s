@@ -13,11 +13,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
-COPY --from=moby/buildkit:latest /usr/bin/buildctl /usr/local/bin/buildctl
+COPY --from=moby/buildkit:master /usr/bin/buildctl /usr/local/bin/buildctl
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+RUN pip install --no-cache-dir --upgrade pip
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 

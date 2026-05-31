@@ -40,10 +40,10 @@ data:
         service: http://grafana:3000
 
       # Catch-all: wildcard subdomains for deployed apps
-      # The tunnel forwards *.jeneeldumasia.codes to the backend
+      # The tunnel forwards *.jeneeldumasia.codes to Traefik
       # which resolves the project by hostname via ingress rules.
       - hostname: "*.jeneeldumasia.codes"
-        service: http://backend:8000
+        service: http://traefik.kube-system.svc.cluster.local:80
 
       # Required catch-all — returns 404 for unmatched routes
       - service: http_status:404

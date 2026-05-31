@@ -77,63 +77,10 @@ from utils.analyzer import RepoAnalyzer
 from utils.git import GitError, normalize_repo_url, clone_or_update_repo
 from worker import DeploymentWorker
 
-# ── Rate limiter (#15) ────────────────────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+from dependencies import limiter, ws_manager, _cache, worker
 
 def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
     return JSONResponse(status_code=429, content={"error": "Too many requests, slow down."})
-
-# ── WebSocket connection manager (#17) ────────────────────────────────────────
-class _WSManager:
-    def __init__(self) -> None:
-        self._connections: dict[str, list[WebSocket]] = {}
-
-    async def connect(self, project_id: str, ws: WebSocket) -> None:
-        await ws.accept()
-        self._connections.setdefault(project_id, []).append(ws)
-
-    def disconnect(self, project_id: str, ws: WebSocket) -> None:
-        conns = self._connections.get(project_id, [])
-        if ws in conns:
-            conns.remove(ws)
-
-    async def broadcast(self, project_id: str, payload: dict) -> None:
-        dead: list[WebSocket] = []
-        for ws in list(self._connections.get(project_id, [])):
-            try:
-                await ws.send_json(payload)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.disconnect(project_id, ws)
-
-ws_manager = _WSManager()
-
-# ── TTL cache for expensive system/metrics endpoints ─────────────────────────
-class _TTLCache:
-    def __init__(self, ttl: float = 5.0) -> None:
-        self._ttl = ttl
-        self._cache: dict = {}
-        self._lock = asyncio.Lock()
-
-    async def get_or_set(self, key: str, coro_factory):
-        async with self._lock:
-            entry = self._cache.get(key)
-            if entry and (_time.monotonic() - entry["ts"]) < self._ttl:
-                return entry["value"]
-        value = await coro_factory()
-        async with self._lock:
-            self._cache[key] = {"value": value, "ts": _time.monotonic()}
-        return value
-
-_cache = _TTLCache(ttl=5.0)
-
-# ── Worker ────────────────────────────────────────────────────────────────────
-worker = DeploymentWorker(
-    public_base_url=settings.public_base_url,
-    generated_dockerfile_root=settings.generated_dockerfile_root,
-    deployment_mode=settings.deployment_mode,
-)
 
 
 async def _reconcile_pod_states() -> None:
@@ -227,6 +174,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from routers import system
+app.include_router(system.router)
+
 
 @app.middleware("http")
 async def record_request_metrics(request: Request, call_next):
@@ -303,29 +253,7 @@ async def get_runtime_logs(project: dict) -> list[str]:
     return await get_container_logs(container_id)
 
 
-# ── Health ────────────────────────────────────────────────────────────────────
-@app.get("/health", response_model=HealthResponse)
-async def healthcheck() -> HealthResponse:
-    return HealthResponse(status="ok")
-
-import hashlib
-@app.get("/api/stress")
-def cpu_stress():
-    """Artificially burn CPU to trigger the Horizontal Pod Autoscaler."""
-    data = b"deployhub-stress-test"
-    for _ in range(1000000):
-        data = hashlib.sha256(data).digest()
-    return {"status": "stressed", "result": data.hex()}
-
-
-@app.get("/ready", response_model=HealthResponse)
-async def readiness() -> HealthResponse:
-    await get_database().command("ping")
-    if settings.deployment_mode == "k8s":
-        k8s_ok = await check_k8s_available()
-        return HealthResponse(status="ready", details={"mongodb": "connected", "k8s": "connected" if k8s_ok else "unavailable"})
-    docker_ok = await check_docker_available()
-    return HealthResponse(status="ready", details={"mongodb": "connected", "docker": "connected" if docker_ok else "unavailable"})
+# ── Health endpoints moved to routers/system.py ─────────────────────────────
 
 
 # ── Analyze ───────────────────────────────────────────────────────────────────
@@ -662,54 +590,7 @@ async def websocket_project(websocket: WebSocket, project_id: str) -> None:
         ws_manager.disconnect(project_id, websocket)
 
 
-# ── System & Metrics ──────────────────────────────────────────────────────────
-@app.get("/api/system", response_model=SystemResponse)
-async def get_system_endpoint() -> SystemResponse:
-    async def _fetch():
-        mongodb_available = True
-        try:
-            await get_database().command("ping")
-        except Exception:
-            mongodb_available = False
-        if settings.deployment_mode == "k8s":
-            running, env_ok = await asyncio.gather(count_running_deployhub_deployments(), check_k8s_available())
-        else:
-            running, env_ok = await asyncio.gather(count_running_deployhub_containers(), check_docker_available())
-        project_count = await count_projects()
-        queued_count = await count_projects_by_status("queued")
-        deployhub_active_containers.set(running)
-        deployhub_projects_total.set(project_count)
-        return {
-            "backend_version": settings.backend_version,
-            "docker_available": env_ok,
-            "mongodb_available": mongodb_available,
-            "project_count": project_count,
-            "running_container_count": running,
-            "active_deployments": worker.active_count(),
-            "queued_deployments": queued_count,
-            "queue_depth": worker.queued_count() + worker.active_count(),
-            "max_concurrent_builds": settings.max_concurrent_builds,
-        }
-    data = await _cache.get_or_set("system", _fetch)
-    return SystemResponse(**{**data, "active_deployments": worker.active_count()})
-
-
-@app.get("/metrics")
-async def metrics_endpoint() -> Response:
-    async def _fetch():
-        deployhub_projects_total.set(await count_projects())
-        if settings.deployment_mode == "k8s":
-            running_count, restart_counts = await asyncio.gather(
-                count_running_deployhub_deployments(), get_all_deployment_restart_counts())
-            deployhub_active_containers.set(running_count)
-            for pod_name, (count, project_name) in restart_counts.items():
-                deployhub_pod_restarts_total.labels(pod_name=pod_name, project_name=project_name).set(count)
-        else:
-            deployhub_active_containers.set(await count_running_deployhub_containers())
-        payload, content_type = await metrics_response()
-        return payload, content_type
-    payload, content_type = await _cache.get_or_set("metrics", _fetch)
-    return Response(content=payload, media_type=content_type)
+# ── System & Metrics endpoints moved to routers/system.py ────────────────────
 
 
 @app.get("/api/projects/{project_id}/health")
@@ -742,18 +623,4 @@ async def get_project_health_endpoint(project_id: str) -> dict:
     }
 
 
-@app.get("/api/stats")
-async def get_stats_endpoint() -> dict:
-    """
-    Persistent deployment stats aggregated from MongoDB deployment_history.
-    Unlike Prometheus counters these survive pod restarts.
-    """
-    stats = await get_deployment_stats()
-    by_status = {
-        "running":  await count_projects_by_status("running"),
-        "failed":   await count_projects_by_status("failed"),
-        "stopped":  await count_projects_by_status("stopped"),
-        "building": await count_projects_by_status("building"),
-        "queued":   await count_projects_by_status("queued"),
-    }
-    return {**stats, "by_status": by_status}
+# ── Stats endpoint moved to routers/system.py ───────────────────────────────

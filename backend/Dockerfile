@@ -14,13 +14,16 @@ RUN apt-get update \
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=moby/buildkit:v0.19.0 /usr/bin/buildctl /usr/local/bin/buildctl
 
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
 RUN useradd -m -s /bin/bash deployhub \
-    && chown -R deployhub:deployhub /app
+    && chown -R deployhub:deployhub /app /opt/venv
 USER deployhub
 
 EXPOSE 8000

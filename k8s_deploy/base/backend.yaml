@@ -67,6 +67,12 @@ spec:
         - name: backend
           image: deployhub-backend:latest
           imagePullPolicy: Always
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8000
           env:
@@ -142,8 +148,12 @@ spec:
           volumeMounts:
             - name: backend-data
               mountPath: /data
+            - name: tmp-volume
+              mountPath: /tmp
       volumes:
         - name: backend-data
+          emptyDir: {}
+        - name: tmp-volume
           emptyDir: {}
 ---
 apiVersion: v1

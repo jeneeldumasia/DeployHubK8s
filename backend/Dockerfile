@@ -1,4 +1,4 @@
-FROM docker:28-cli AS dockercli
+FROM docker:cli AS dockercli
 
 FROM python:3.12-slim-bookworm
 
@@ -8,11 +8,12 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
-COPY --from=moby/buildkit:v0.19.0 /usr/bin/buildctl /usr/local/bin/buildctl
+COPY --from=moby/buildkit:latest /usr/bin/buildctl /usr/local/bin/buildctl
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"

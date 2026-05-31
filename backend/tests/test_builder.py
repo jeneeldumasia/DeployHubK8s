@@ -90,7 +90,7 @@ def test_no_bare_except_in_worker():
     Bare `except:` clauses swallow KeyboardInterrupt and SystemExit.
     This AST walk ensures none exist in worker.py.
     """
-    worker_path = Path(__file__).parent.parent / "worker.py"
+    worker_path = Path(__file__).parent.parent / "builder.py"
     tree = ast.parse(worker_path.read_text(encoding="utf-8"))
 
     bare_excepts = [
@@ -99,7 +99,7 @@ def test_no_bare_except_in_worker():
         if isinstance(node, ast.ExceptHandler) and node.type is None
     ]
     assert bare_excepts == [], (
-        f"Found {len(bare_excepts)} bare except clause(s) in worker.py at lines: "
+        f"Found {len(bare_excepts)} bare except clause(s) in builder.py at lines: "
         + ", ".join(str(e.lineno) for e in bare_excepts)
     )
 
@@ -112,7 +112,7 @@ async def test_deploy_calls_create_pod(tmp_path):
     Smoke-test that deploy() in k8s mode calls create_pod (which wraps
     create_namespaced_pod). We mock all I/O so no real cluster is needed.
     """
-    from worker import DeploymentWorker
+    from builder import DeploymentWorker
 
     worker = DeploymentWorker(
         public_base_url="http://1.2.3.4",
@@ -150,18 +150,18 @@ async def test_deploy_calls_create_pod(tmp_path):
     (repo_dir / "package-lock.json").write_text("{}", encoding="utf-8")
 
     with (
-        patch("worker.get_project_by_id", new=AsyncMock(return_value=fake_project)),
-        patch("worker.update_project", new=AsyncMock()),
-        patch("worker.append_build_log", new=AsyncMock()),
-        patch("worker.append_deployment_history", new=AsyncMock()),
-        patch("worker.clone_or_update_repo", new=AsyncMock(return_value=repo_dir)),
-        patch("worker.get_occupied_node_ports", new=AsyncMock(return_value=[])),
-        patch("worker.create_ingress", new=AsyncMock(return_value={"status": "success"})),
-        patch("worker.delete_pod", new=AsyncMock()),
-        patch("worker.delete_ingress", new=AsyncMock()),
-        patch("worker.wait_for_pod_running", new=AsyncMock(return_value={"status": "running"})),
+        patch("builder.get_project_by_id", new=AsyncMock(return_value=fake_project)),
+        patch("builder.update_project", new=AsyncMock()),
+        patch("builder.append_build_log", new=AsyncMock()),
+        patch("builder.append_deployment_history", new=AsyncMock()),
+        patch("builder.clone_or_update_repo", new=AsyncMock(return_value=repo_dir)),
+        patch("builder.get_occupied_node_ports", new=AsyncMock(return_value=[])),
+        patch("builder.create_ingress", new=AsyncMock(return_value={"status": "success"})),
+        patch("builder.delete_deployment", new=AsyncMock()),
+        patch("builder.delete_ingress", new=AsyncMock()),
+        patch("builder.wait_for_deployment_running", new=AsyncMock(return_value={"status": "running"})),
         patch("utils.buildkit.build_image", new=AsyncMock(return_value={"status": "success", "logs": ""})),
-        patch("worker.create_pod", new=AsyncMock(return_value={"status": "success"})) as mock_create_pod,
+        patch("builder.create_deployment", new=AsyncMock(return_value={"status": "success"})) as mock_create_deployment,
     ):
         # Patch settings so ecr_registry is set
         import config
@@ -174,9 +174,9 @@ async def test_deploy_calls_create_pod(tmp_path):
 
         await worker.deploy("abc12345", action="deploy")
 
-        mock_create_pod.assert_called_once()
-        call_kwargs = mock_create_pod.call_args
-        assert call_kwargs is not None, "create_pod was never called"
+        mock_create_deployment.assert_called_once()
+        call_kwargs = mock_create_deployment.call_args
+        assert call_kwargs is not None, "create_deployment was never called"
 
 
 @pytest.mark.asyncio
@@ -185,7 +185,7 @@ async def test_generated_dockerfile_contents_node_build(tmp_path):
     Test that generated Node.js Dockerfiles include the build command when
     a 'build' script is defined in package.json.
     """
-    from worker import DeploymentWorker
+    from builder import DeploymentWorker
 
     worker = DeploymentWorker(
         public_base_url="http://1.2.3.4",
@@ -197,11 +197,13 @@ async def test_generated_dockerfile_contents_node_build(tmp_path):
         "node_scripts": {"start": "node index.js", "build": "vite build"},
         "has_package_lock": True,
     }
+    async def dummy_record_log(msg): pass
     dockerfile_with_build = await worker._generated_dockerfile_contents(
         project_type="node",
         metadata=metadata_with_build,
         repo_path=tmp_path,
-        record_log=AsyncMock(),
+        project={},
+        record_log=dummy_record_log,
     )
     assert "RUN npm ci" in dockerfile_with_build
     assert "RUN npm run build" in dockerfile_with_build
@@ -215,7 +217,8 @@ async def test_generated_dockerfile_contents_node_build(tmp_path):
         project_type="node",
         metadata=metadata_no_build,
         repo_path=tmp_path,
-        record_log=AsyncMock(),
+        project={},
+        record_log=dummy_record_log,
     )
     assert "RUN npm ci" in dockerfile_no_build
     assert "RUN npm run build" not in dockerfile_no_build

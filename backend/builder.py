@@ -1,7 +1,6 @@
 import asyncio
 import shutil
 import os
-import aiohttp
 import json
 from datetime import UTC, datetime
 from pathlib import Path

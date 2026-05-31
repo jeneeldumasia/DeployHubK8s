@@ -27,7 +27,7 @@ class RepoAnalyzer:
             # Modify dirs in-place to skip unwanted ones and any hidden directories (starting with '.')
             dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith('.')]
             
-            rel_path = os.path.relpath(root, self.repo_path)
+            rel_path = os.path.relpath(root, self.repo_path).replace("\\", "/")
             if rel_path == '.':
                 rel_path = ""
 

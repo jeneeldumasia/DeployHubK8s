@@ -136,7 +136,10 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repo_url: repoUrl }),
       });
-      if (!res.ok) throw new Error("Analysis failed");
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.detail || "Analysis failed");
+      }
       const data = await res.json();
       if (data.services?.length > 1) {
         setDetectedServices(data.services);

@@ -30,6 +30,11 @@ spec:
               type: Unconfined
             runAsUser: 1000
             runAsGroup: 1000
+          livenessProbe:
+            exec:
+              command: ["buildctl", "debug", "workers"]
+            initialDelaySeconds: 15
+            periodSeconds: 20
           readinessProbe:
             exec:
               command: ["buildctl", "debug", "workers"]

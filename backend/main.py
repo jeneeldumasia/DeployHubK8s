@@ -376,8 +376,16 @@ async def queue_deployment(project_id: str, action: str) -> ProjectActionRespons
     if project["status"] == "deleting":
         raise HTTPException(status_code=409, detail="Project is being deleted")
     
-    # Check if already queued
-    # Not strictly necessary to enforce uniqueness here, but we can set status to queued
+    # Distributed lock to prevent rapid-fire duplicate API requests
+    lock_key = f"lock:queue:{project_id}"
+    acquired = await redis_client.set(lock_key, "1", nx=True, ex=5)
+    if not acquired:
+        raise HTTPException(status_code=429, detail="Deployment already queued recently")
+
+    # Check if already queued or building
+    if project.get("status") in ("queued", "building") and action != "stop" and action != "delete":
+        raise HTTPException(status_code=409, detail=f"Project is already {project.get('status')}")
+
     await update_project(project_id, {"status": "queued", "last_error": None})
     await redis_client.rpush("deployhub_queue", json.dumps({"project_id": project_id, "action": action}))
     
@@ -562,9 +570,7 @@ async def stream_logs_endpoint(project_id: str) -> StreamingResponse:
             
             proj_status = payload.get("status")
             if proj_status in {"failed", "stopped", "deleting", "running"}:
-                # If running, we probably still want to wait a bit in case runtime logs stream in... 
-                # But actually, SSE is mostly useful for the build phase. For running, clients might re-poll or the worker handles it.
-                pass
+                break
 
     return StreamingResponse(event_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
 

@@ -112,6 +112,16 @@ spec:
                 configMapKeyRef:
                   name: backend-config
                   key: aws-region
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pgrep -f builder"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pgrep -f builder"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
           resources:
             requests:
               cpu: "50m"

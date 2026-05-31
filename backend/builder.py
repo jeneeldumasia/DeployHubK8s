@@ -71,18 +71,28 @@ class DeploymentWorker:
                     continue
                 
                 print(f"Processing {action} for {project_id}...")
+                
+                # Distributed lock to prevent concurrent builds of the same project across multiple replicas
+                lock_key = f"lock:build:{project_id}"
+                acquired = await redis_client.set(lock_key, "1", nx=True, ex=3600)
+                if not acquired:
+                    print(f"Project {project_id} is already being built by another worker. Skipping duplicate.")
+                    continue
 
-                async with self._build_semaphore:
-                    if action == "rollback":
-                        await self._do_rollback(project_id)
-                    elif action == "stop":
-                        await self.stop_project(project_id)
-                    elif action == "delete":
-                        project = await get_project_by_id(project_id)
-                        if project:
-                            await self.delete_project_resources(project)
-                    else:
-                        await self.deploy(project_id, action=action)
+                try:
+                    async with self._build_semaphore:
+                        if action == "rollback":
+                            await self._do_rollback(project_id)
+                        elif action == "stop":
+                            await self.stop_project(project_id)
+                        elif action == "delete":
+                            project = await get_project_by_id(project_id)
+                            if project:
+                                await self.delete_project_resources(project)
+                        else:
+                            await self.deploy(project_id, action=action)
+                finally:
+                    await redis_client.delete(lock_key)
                 
                 print(f"Finished processing {action} for {project_id}.")
                 await redis_client.publish(f"logs:{project_id}", "status_update")

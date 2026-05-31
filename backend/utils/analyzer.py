@@ -23,11 +23,12 @@ class RepoAnalyzer:
         # We perform a recursive scan, but skip common heavy and hidden/cache directories
         skip_dirs = {'node_modules', 'venv', '.venv', '__pycache__', 'dist', 'build'}
         
-        for root, dirs, files in os.walk(self.repo_path):
+        base_path = str(self.repo_path.resolve())
+        for root, dirs, files in os.walk(base_path):
             # Modify dirs in-place to skip unwanted ones and any hidden directories (starting with '.')
             dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith('.')]
             
-            rel_path = os.path.relpath(root, self.repo_path).replace("\\", "/")
+            rel_path = os.path.relpath(root, base_path).replace("\\", "/")
             if rel_path == '.':
                 rel_path = ""
 

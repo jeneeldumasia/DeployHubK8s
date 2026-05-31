@@ -60,9 +60,9 @@ spec:
       imagePullSecrets:
         - name: ecr-private-key
       initContainers:
-        - name: wait-for-mongo
+        - name: wait-for-mongo-redis
           image: busybox:1.36
-          command: ['sh', '-c', 'until nc -z mongodb 27017; do echo "Waiting for MongoDB..."; sleep 5; done']
+          command: ['sh', '-c', 'until nc -z mongodb 27017 && nc -z redis 6379; do echo "Waiting for MongoDB and Redis..."; sleep 5; done']
       containers:
         - name: backend
           image: deployhub-backend:latest
@@ -91,6 +91,8 @@ spec:
                 configMapKeyRef:
                   name: backend-config
                   key: mongo-db-name
+            - name: REDIS_URL
+              value: "redis://redis:6379/0"
             - name: BUILDKIT_HOST
               valueFrom:
                 configMapKeyRef:

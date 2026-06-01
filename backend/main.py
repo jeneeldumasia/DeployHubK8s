@@ -499,8 +499,7 @@ async def delete_project_endpoint(project_id: str) -> Response:
     project = await get_project_by_id(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if project.get("status") == "building":
-        raise HTTPException(status_code=409, detail="Project is currently building and cannot be deleted")
+    # Allow deletion even if building so users can escape stuck builds
     await update_project(project_id, {"status": "deleting"})
     
     # Enqueue deletion logic to the builder worker

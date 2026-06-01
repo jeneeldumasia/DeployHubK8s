@@ -180,7 +180,10 @@ export default function App() {
           env_vars: parsedEnvVars,
         }),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || "Failed to create project"); }
+      if (!res.ok) { 
+        const e = await res.json().catch(() => ({ detail: "Failed to create project (server error)" })); 
+        throw new Error(e.detail || "Failed to create project"); 
+      }
       const newProject = await res.json();
       setRepoUrl("");
       setEnvVars("");

@@ -84,12 +84,12 @@ def test_repo_analyzer_ignores_hidden_dirs(tmp_path):
 
 
 
-# ── AST check: no bare except in worker.py ───────────────────────────────────
+# ── AST check: no bare except in builder.py ───────────────────────────────────
 
 def test_no_bare_except_in_worker():
     """
     Bare `except:` clauses swallow KeyboardInterrupt and SystemExit.
-    This AST walk ensures none exist in worker.py.
+    This AST walk ensures none exist in builder.py.
     """
     worker_path = Path(__file__).parent.parent / "builder.py"
     tree = ast.parse(worker_path.read_text(encoding="utf-8"))

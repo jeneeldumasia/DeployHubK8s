@@ -317,7 +317,9 @@ async def create_project_endpoint(request: Request, payload: ProjectCreate) -> P
     project_id = await create_project(document)
     
     # Automatically queue the initial deployment on creation
-    await worker.enqueue(project_id, action="deploy")
+    await redis_client.rpush("deployhub_queue", json.dumps({"project_id": project_id, "action": "deploy"}))
+    await ws_manager.broadcast(project_id, {"type": "status_update", "status": "queued"})
+    await redis_client.publish(f"logs:{project_id}", "status_update")
     deployhub_deployments_total.labels(action="deploy").inc()
     log_event("deployment_queued", project_id=project_id, action="deploy")
 

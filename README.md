@@ -130,7 +130,7 @@ Push to main → deploy.yml
 ```
 ├── backend/
 │   ├── main.py               FastAPI app, rate limiting, WebSocket, SSE
-│   ├── worker.py             Async deployment queue, rollback, history
+│   ├── builder.py            Async deployment queue, rollback, history
 │   ├── database.py           Motor async MongoDB, compound indexes
 │   ├── observability.py      12 Prometheus metrics + structured JSON logging
 │   ├── security.py           HMAC-SHA256 webhook signature verification

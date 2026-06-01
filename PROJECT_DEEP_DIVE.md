@@ -99,9 +99,9 @@ All defined in `backend/main.py` using FastAPI.
 
 ---
 
-## 5. Backend — The Deployment Worker
+## 5. Backend — Builder Service
 
-`DeploymentWorker` in `backend/worker.py` is the core engine.
+`DeploymentWorker` in `backend/builder.py` is the core engine.
 
 **Queue mechanism:**
 - `asyncio.Queue` — items are `(action, project_id)` tuples

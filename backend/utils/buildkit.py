@@ -71,6 +71,7 @@ def _build_image_sync(
     image_tag: str,
     dockerfile_path: str,
     context_path: str,
+    timeout: int,
 ) -> Dict[str, str]:
     """
     Synchronous BuildKit build. Runs in a thread-pool executor so it doesn't
@@ -145,8 +146,11 @@ def _build_image_sync(
             text=True,
             check=True,
             env=env,
+            timeout=timeout,
         )
         return {"status": "success", "image": image_tag, "logs": result.stdout}
+    except subprocess.TimeoutExpired as exc:
+        return {"status": "error", "image": image_tag, "logs": f"BuildKit command timed out after {timeout}s:\n{exc.stdout or ''}"}
     except subprocess.CalledProcessError as exc:
         return {"status": "error", "image": image_tag, "logs": exc.stdout or str(exc)}
     except Exception as exc:
@@ -179,7 +183,7 @@ async def build_image(
         result = await asyncio.wait_for(
             loop.run_in_executor(
                 None,
-                partial(_build_image_sync, image_tag, dockerfile_path, context_path),
+                partial(_build_image_sync, image_tag, dockerfile_path, context_path, effective_timeout),
             ),
             timeout=effective_timeout,
         )

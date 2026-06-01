@@ -25,6 +25,7 @@ spec:
             - tcp://0.0.0.0:1234
             - --addr
             - unix:///run/user/1000/buildkit/buildkitd.sock
+            - --oci-worker-no-process-sandbox
           ports:
             - containerPort: 1234
           securityContext:

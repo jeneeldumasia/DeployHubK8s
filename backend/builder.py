@@ -74,6 +74,11 @@ class DeploymentWorker:
                 
                 # Distributed lock to prevent concurrent builds of the same project across multiple replicas
                 lock_key = f"lock:build:{project_id}"
+                
+                if action in ("delete", "stop"):
+                    # Force clear the lock to escape stale locks from dead workers
+                    await redis_client.delete(lock_key)
+
                 acquired = await redis_client.set(lock_key, "1", nx=True, ex=3600)
                 if not acquired:
                     print(f"Project {project_id} is already being built by another worker. Skipping duplicate.")

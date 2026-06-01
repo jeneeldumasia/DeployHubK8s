@@ -19,21 +19,20 @@ spec:
     spec:
       containers:
         - name: buildkitd
-          image: moby/buildkit:v0.19.0
+          image: moby/buildkit:v0.19.0-rootless
           args:
             - --addr
             - tcp://0.0.0.0:1234
             - --addr
-            - unix:///run/buildkit/buildkitd.sock
+            - unix:///run/user/1000/buildkit/buildkitd.sock
             - --oci-worker-no-process-sandbox
           ports:
             - containerPort: 1234
           securityContext:
             seccompProfile:
               type: Unconfined
-            capabilities:
-              add:
-                - SYS_ADMIN
+            runAsUser: 1000
+            runAsGroup: 1000
           livenessProbe:
             exec:
               command: ["buildctl", "debug", "workers"]

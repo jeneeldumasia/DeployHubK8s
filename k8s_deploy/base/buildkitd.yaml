@@ -14,6 +14,8 @@ spec:
     metadata:
       labels:
         app: buildkitd
+      annotations:
+        container.apparmor.security.beta.kubernetes.io/buildkitd: unconfined
     spec:
       containers:
         - name: buildkitd

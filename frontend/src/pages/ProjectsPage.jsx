@@ -100,7 +100,7 @@ export default function ProjectsPage({
                   onClick={() => onProjectAction("redeploy_magic", p.id)}
                   title="Fixes case-sensitivity build errors by creating lowercase symlinks"
                 >
-                  Magic Redeploy
+                  ✨ Fix Case & Redeploy
                 </button>
                 <button
                   type="button"

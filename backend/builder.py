@@ -5,7 +5,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from database import append_build_log, append_deployment_history, get_project_by_id, update_project, utc_now
+from database import append_build_log, append_deployment_history, get_project_by_id, update_project, utc_now, delete_project
 from observability import (
     deployhub_build_duration_seconds,
     deployhub_deployment_duration_seconds,
@@ -89,6 +89,7 @@ class DeploymentWorker:
                             project = await get_project_by_id(project_id)
                             if project:
                                 await self.delete_project_resources(project)
+                                await delete_project(project_id)
                         else:
                             await self.deploy(project_id, action=action)
                 finally:

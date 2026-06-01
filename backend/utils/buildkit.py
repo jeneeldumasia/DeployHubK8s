@@ -67,16 +67,18 @@ def _ensure_ecr_repository(image_tag: str, region: str) -> Optional[str]:
         raise  # unexpected error
 
 
-def _build_image_sync(
+async def build_image(
     image_tag: str,
     dockerfile_path: str,
     context_path: str,
-    timeout: int,
+    on_line: Optional[Callable[[str], Coroutine]] = None,
+    timeout_seconds: int | None = None,
 ) -> Dict[str, str]:
     """
-    Synchronous BuildKit build. Runs in a thread-pool executor so it doesn't
-    block the asyncio event loop.
+    Builds a docker image using buildctl as an asyncio subprocess.
     """
+    import signal
+    timeout = timeout_seconds or settings.buildkit_timeout_seconds
     dockerfile_dir = os.path.dirname(dockerfile_path) or context_path
     dockerfile_name = os.path.basename(dockerfile_path)
 
@@ -94,17 +96,13 @@ def _build_image_sync(
     ]
 
     env = os.environ.copy()
-    buildkit_host = env.get("BUILDKIT_HOST", settings.buildkit_addr)
-    env["BUILDKIT_HOST"] = buildkit_host
+    env["BUILDKIT_HOST"] = env.get("BUILDKIT_HOST", settings.buildkit_addr)
 
     docker_config_dir = None
-
-    # ECR authentication when the image lives in ECR
     if ".dkr.ecr." in image_tag:
         try:
             parts = image_tag.split(".")
             region = parts[3] if len(parts) > 3 else settings.aws_region
-
             repo_warning = _ensure_ecr_repository(image_tag, region)
             if repo_warning:
                 print(repo_warning, flush=True)
@@ -113,88 +111,48 @@ def _build_image_sync(
             auth_data = ecr.get_authorization_token()["authorizationData"][0]
             token = base64.b64decode(auth_data["authorizationToken"]).decode()
             username, password = token.split(":")
-            registry_url = auth_data["proxyEndpoint"]
-
             docker_config_dir = tempfile.mkdtemp()
-            config = {
-                "auths": {
-                    registry_url: {
-                        "auth": base64.b64encode(
-                            f"{username}:{password}".encode()
-                        ).decode()
-                    }
-                }
-            }
+            config = {"auths": {auth_data["proxyEndpoint"]: {"auth": base64.b64encode(f"{username}:{password}".encode()).decode()}}}
             with open(os.path.join(docker_config_dir, "config.json"), "w") as f:
                 json.dump(config, f)
             env["DOCKER_CONFIG"] = docker_config_dir
         except Exception as exc:
-            # Clean up temp dir if it was created before the exception
-            if docker_config_dir and os.path.exists(docker_config_dir):
-                shutil.rmtree(docker_config_dir, ignore_errors=True)
-            return {
-                "status": "error",
-                "image": image_tag,
-                "logs": f"ECR authentication failed: {exc}",
-            }
+            if docker_config_dir: shutil.rmtree(docker_config_dir, ignore_errors=True)
+            return {"status": "error", "image": image_tag, "logs": f"ECR auth failed: {exc}"}
 
+    logs = []
     try:
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            check=True,
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
             env=env,
-            timeout=timeout,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            preexec_fn=os.setsid
         )
-        return {"status": "success", "image": image_tag, "logs": result.stdout}
-    except subprocess.TimeoutExpired as exc:
-        return {"status": "error", "image": image_tag, "logs": f"BuildKit command timed out after {timeout}s:\n{exc.stdout or ''}"}
-    except subprocess.CalledProcessError as exc:
-        return {"status": "error", "image": image_tag, "logs": exc.stdout or str(exc)}
-    except Exception as exc:
-        return {"status": "error", "image": image_tag, "logs": str(exc)}
+
+        async def read_stream():
+            while True:
+                line = await proc.stdout.readline()
+                if not line: break
+                decoded = line.decode(errors='replace')
+                logs.append(decoded)
+                if on_line: await on_line(decoded)
+
+        try:
+            await asyncio.wait_for(read_stream(), timeout=timeout)
+            await proc.wait()
+        except asyncio.TimeoutError:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                await asyncio.sleep(1)
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                pass
+            return {"status": "error", "image": image_tag, "logs": f"Timed out after {timeout}s"}
+
+        if proc.returncode != 0:
+            return {"status": "error", "image": image_tag, "logs": "".join(logs)}
+        return {"status": "success", "image": image_tag, "logs": "".join(logs)}
     finally:
         if docker_config_dir and os.path.exists(docker_config_dir):
-            shutil.rmtree(docker_config_dir)
-
-
-async def build_image(
-    image_tag: str,
-    dockerfile_path: str,
-    context_path: str,
-    on_line: Optional[Callable[[str], Coroutine]] = None,
-    timeout_seconds: int | None = None,
-) -> Dict[str, str]:
-    """
-    Async wrapper around the synchronous BuildKit build.
-
-    Parameters match what worker.py expects:
-      image_tag       – fully-qualified image name (registry/name:tag)
-      dockerfile_path – absolute path to the Dockerfile
-      context_path    – absolute path to the build context directory
-      on_line         – optional async callback called once with the full log blob
-      timeout_seconds – build timeout (defaults to settings.buildkit_timeout_seconds)
-    """
-    effective_timeout = timeout_seconds or settings.buildkit_timeout_seconds
-    loop = asyncio.get_running_loop()
-    try:
-        result = await asyncio.wait_for(
-            loop.run_in_executor(
-                None,
-                partial(_build_image_sync, image_tag, dockerfile_path, context_path, effective_timeout),
-            ),
-            timeout=effective_timeout,
-        )
-    except asyncio.TimeoutError:
-        result = {
-            "status": "error",
-            "image": image_tag,
-            "logs": f"BuildKit build timed out after {effective_timeout}s",
-        }
-
-    if on_line and result.get("logs"):
-        await on_line(result["logs"])
-
-    return result
+            shutil.rmtree(docker_config_dir, ignore_errors=True)

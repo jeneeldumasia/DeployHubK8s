@@ -664,6 +664,8 @@ jobs:
           sed -i "s|deployhub-backend:latest|$ECR_BACKEND:$IMAGE_TAG|g" k8s_rendered/base/backend.yaml
           sed -i "s|deployhub-frontend:latest|$ECR_FRONTEND:$IMAGE_TAG|g" k8s_rendered/base/frontend.yaml
           sed -i "s|\${BACKEND_SA_ROLE_ARN}|$BACKEND_SA_ROLE_ARN|g" k8s_rendered/base/backend.yaml
+          sed -i "s|deployhub-backend:latest|$ECR_BACKEND:$IMAGE_TAG|g" k8s_rendered/base/builder.yaml
+          sed -i "s|\${BACKEND_SA_ROLE_ARN}|$BACKEND_SA_ROLE_ARN|g" k8s_rendered/base/builder.yaml
           envsubst '${MONGO_ROOT_USER}${MONGO_ROOT_PASSWORD}${REPLACE_ME_GRAFANA_USER}${REPLACE_ME_GRAFANA_PASSWORD}${REPLACE_ME_MONGO_URI}${REPLACE_ME_REGISTRY_ADDR}${REPLACE_ME_PUBLIC_BASE_URL}${REPLACE_ME_GITHUB_WEBHOOK_SECRET}' \
             < k8s_deploy/base/secrets.yaml > k8s_rendered/base/secrets.yaml
 

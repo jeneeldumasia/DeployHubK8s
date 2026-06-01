@@ -35,12 +35,12 @@ spec:
             runAsGroup: 1000
           livenessProbe:
             exec:
-              command: ["buildctl", "debug", "workers"]
+              command: ["buildctl", "--addr", "unix:///run/user/1000/buildkit/buildkitd.sock", "debug", "workers"]
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             exec:
-              command: ["buildctl", "debug", "workers"]
+              command: ["buildctl", "--addr", "unix:///run/user/1000/buildkit/buildkitd.sock", "debug", "workers"]
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:

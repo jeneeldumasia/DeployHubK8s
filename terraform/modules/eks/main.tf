@@ -373,7 +373,10 @@ data "aws_iam_policy_document" "backend_sa_assume" {
     condition {
       test     = "StringEquals"
       variable = "${replace(aws_iam_openid_connect_provider.eks.url, "https://", "")}:sub"
-      values   = ["system:serviceaccount:deployhub:backend-sa"]
+      values   = [
+        "system:serviceaccount:deployhub:backend-sa",
+        "system:serviceaccount:deployhub:builder-sa"
+      ]
     }
   }
 }
